@@ -1,58 +1,558 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="EdgeVision AI — Edge AI based real-time object detection for smart media applications">
-<title>EdgeVision AI | Smart Media Object Detection</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="EdgeVision AI — Edge AI based real-time object detection for smart media applications">
+  <title>EdgeVision AI | Smart Media Object Detection</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="nav"><div class="brand"><span class="brand-mark">EV</span><span>EdgeVision <b>AI</b></span></div><nav><a href="#dashboard">Dashboard</a><a href="#live">Live Detection</a><a href="#analytics">Analytics</a><a href="#architecture">Architecture</a><a href="#settings">Settings</a></nav><div class="status"><i></i><span id="navStatus">AI Ready</span></div></header>
-<main>
-<section id="dashboard" class="hero"><div><div class="eyebrow">EDGE AI • COMPUTER VISION</div><h1>Real-time intelligence,<br><span>running at the edge.</span></h1><p>Detect objects from your camera locally in the browser using YOLO11 and ONNX Runtime — without a cloud inference server.</p><div class="hero-actions"><a class="btn primary" href="#live">Start Detection</a><a class="btn ghost" href="#architecture">View Architecture</a></div><div class="mini-points"><span>✓ Local inference</span><span>✓ Live bounding boxes</span><span>✓ WebGPU / CPU</span></div></div><div class="hero-visual"><div class="orb">AI</div><div class="orbit o1"></div><div class="orbit o2"></div><div class="visual-label l1">LOW LATENCY</div><div class="visual-label l2">ON-DEVICE</div></div></section>
-<section class="section" id="live"><div class="section-head"><div><div class="eyebrow">LIVE WORKSPACE</div><h2>Object Detection</h2><p>Start your camera and detect supported objects in real time.</p></div><div class="engine-pill" id="engineStatus">● Initializing AI</div></div>
-<div class="live-grid"><div class="camera-card"><div class="camera-wrap"><video id="video" autoplay playsinline muted></video><canvas id="overlay"></canvas><div class="camera-placeholder" id="placeholder"><div class="camera-icon">◉</div><h3>Camera ready</h3><p>Click <b>Start Camera</b> to begin local inference.</p></div><div class="camera-badge">LOCAL INFERENCE</div></div><div class="controls"><button id="startBtn" class="btn primary">Start Camera</button><button id="stopBtn" class="btn" disabled>Stop</button><button id="snapshotBtn" class="btn" disabled>Snapshot</button></div><div class="settings"><label>Confidence <input id="confidence" type="range" min="0.20" max="0.90" step="0.05" value="0.55"><b id="confidenceValue">55%</b></label><label class="check"><input id="gpuToggle" type="checkbox" checked> Use WebGPU when available</label></div></div>
-<div class="side-stack"><div class="stats-grid"><div class="stat"><span>Inference</span><strong id="latency">-- ms</strong></div><div class="stat"><span>FPS</span><strong id="fps">--</strong></div><div class="stat"><span>Objects</span><strong id="objectCount">0</strong></div><div class="stat"><span>Engine</span><strong id="engine">--</strong></div></div><div class="panel"><div class="panel-title"><h3>Detected Objects</h3><span>LIVE</span></div><div id="detections" class="detections"><div class="empty">No objects detected yet.</div></div></div></div></div></section>
-<section class="section" id="analytics"><div class="section-head"><div><div class="eyebrow">SESSION INSIGHTS</div><h2>Analytics</h2><p>Track objects detected during this session.</p></div><div style="display:flex;gap:10px;flex-wrap:wrap"><button id="exportHistory" class="btn small">Export CSV</button><button id="clearHistory" class="btn small">Clear History</button></div></div><div class="analytics-grid"><div class="metric-card"><span>Total detections</span><strong id="analyticsTotal">0</strong><small>Objects across processed frames</small></div><div class="metric-card"><span>Unique classes</span><strong id="analyticsClasses">0</strong><small>Different object labels</small></div><div class="metric-card"><span>Snapshots</span><strong id="analyticsSnapshots">0</strong><small>Saved from this app</small></div></div><div class="analytics-layout"><div class="panel"><div class="panel-title"><h3>Object frequency</h3><span>TOP CLASSES</span></div><div id="analyticsBars" class="bars"><div class="empty">Start detection to build analytics.</div></div></div><div class="panel"><div class="panel-title"><h3>Recent detections</h3><span>HISTORY</span></div><div id="history" class="history"><div class="empty">No detection history yet.</div></div></div></div></section>
-<section class="section" id="architecture"><div class="section-head"><div><div class="eyebrow">SYSTEM DESIGN</div><h2>Edge AI Architecture</h2><p>The camera data is processed locally instead of being sent to a cloud inference server.</p></div></div><div class="architecture"><div class="arch-node"><b>01</b><span>Camera</span><small>Live video input</small></div><div class="arch-arrow">→</div><div class="arch-node"><b>02</b><span>Browser Edge Device</span><small>Local preprocessing</small></div><div class="arch-arrow">→</div><div class="arch-node active"><b>03</b><span>YOLO11n + ONNX</span><small>AI inference</small></div><div class="arch-arrow">→</div><div class="arch-node"><b>04</b><span>Results</span><small>Boxes + labels + confidence</small></div></div><div class="feature-grid"><div><b>⚡ Low latency</b><span>Inference happens on the user's device.</span></div><div><b>🔒 Privacy-aware</b><span>Video frames are not uploaded for inference.</span></div><div><b>📶 Low bandwidth</b><span>No continuous cloud video stream is required.</span></div><div><b>🧠 Edge AI</b><span>YOLO11 runs through ONNX Runtime Web.</span></div></div></section>
+  <!-- Header Navigation -->
+  <header class="nav">
+    <div class="brand">
+      <span class="brand-mark">EV</span>
+      <span>EdgeVision <b>AI</b></span>
+    </div>
+    <nav>
+      <a href="#dashboard">Dashboard</a>
+      <a href="#live">Workspace</a>
+      <a href="#analytics">Analytics</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#settings">Settings</a>
+      <a href="#about">About</a>
+    </nav>
+    <div class="status">
+      <i></i>
+      <span id="navStatus">AI Ready</span>
+    </div>
+  </header>
 
-<section class="section" id="settings"><div class="section-head"><div><div class="eyebrow">CONTROL CENTER</div><h2>Settings & Model</h2><p>Configure detection behavior and prepare EdgeVision AI for your future custom-trained model.</p></div><div class="engine-pill">LOCAL CONFIGURATION</div></div>
-<div class="settings-grid">
-<div class="panel settings-panel"><div class="panel-title"><h3>Detection Settings</h3><span>LIVE</span></div>
-<label class="setting-row"><span>Confidence threshold</span><div class="setting-control"><input id="settingsConfidence" type="range" min="0.20" max="0.90" step="0.05" value="0.55"><b id="settingsConfidenceValue">55%</b></div></label>
-<label class="setting-row"><span>Inference engine</span><select id="engineSelect"><option value="auto">Auto (WebGPU → CPU)</option><option value="webgpu">WebGPU</option><option value="wasm">CPU / WASM</option></select></label>
-<label class="setting-row"><span>Camera</span><select id="cameraSelect"><option value="environment">Back / Environment</option><option value="user">Front / User</option></select></label>
-<button id="saveSettings" class="btn primary">Save Settings</button><span id="settingsSaved" class="saved-msg"></span></div>
-<div class="panel settings-panel"><div class="panel-title"><h3>AI Model</h3><span id="modelState">YOLO11n ACTIVE</span></div>
-<div class="model-card active-model" id="defaultModelCard"><div class="model-icon">⚡</div><div><b>YOLO11n</b><small>Default lightweight Edge AI model (COCO 80 classes)</small></div><span class="model-badge" id="defaultModelBadge">ACTIVE</span></div>
-<div class="model-card" id="customModelCard"><div class="model-icon">🧠</div><div><b>Custom YOLO ONNX</b><small>Compatible with YOLOv8, YOLOv9, YOLOv10, YOLO11 exports</small></div><label class="upload-btn"><span id="chooseModelLabel">Choose .onnx</span><input id="customModelInput" type="file" accept=".onnx,application/octet-stream"></label></div>
-<label class="class-label">Custom model class names <small>One class per line (e.g. "person" or "0: person"), in exact training order.</small><textarea id="customClasses" rows="5" placeholder="person
+  <main>
+    <!-- MODULE 1: Dashboard / Home Section -->
+    <section id="dashboard" class="hero">
+      <div>
+        <div class="academic-badge">🎓 2nd-Year B.Tech Project • Edge AI & Computer Vision</div>
+        <div class="eyebrow">EDGE AI • SMART MEDIA APPLICATIONS</div>
+        <h1>Real-time intelligence,<br><span>running at the edge.</span></h1>
+        <p>
+          Detect objects from your camera, local images, or video files directly in the browser using YOLO11 and ONNX Runtime — without sending video streams to a cloud inference server.
+        </p>
+        <div class="edge-notice">
+          ⚡ <b>Local Edge Architecture:</b> AI inference runs 100% locally in your browser. No cloud upload, no external API latency.
+        </div>
+        <div class="hero-actions">
+          <a class="btn primary" href="#live">Start Detection</a>
+          <a class="btn ghost" href="#architecture">View Architecture</a>
+        </div>
+        <div class="mini-points">
+          <span>✓ Zero cloud latency</span>
+          <span>✓ Privacy-preserving</span>
+          <span>✓ WebGPU & WASM</span>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <div class="orb">AI</div>
+        <div class="orbit o1"></div>
+        <div class="orbit o2"></div>
+        <div class="visual-label l1">LOW LATENCY</div>
+        <div class="visual-label l2">ON-DEVICE</div>
+      </div>
+    </section>
+
+    <!-- Dashboard Live Telemetry & Quick Metrics -->
+    <div class="dash-metrics-grid">
+      <div class="dash-stat">
+        <span>Total Detections</span>
+        <strong id="dashTotal">0</strong>
+      </div>
+      <div class="dash-stat">
+        <span>Unique Classes</span>
+        <strong id="dashClasses">0</strong>
+      </div>
+      <div class="dash-stat">
+        <span>Current FPS</span>
+        <strong id="dashFps">--</strong>
+      </div>
+      <div class="dash-stat">
+        <span>Latency</span>
+        <strong id="dashLatency">-- ms</strong>
+      </div>
+      <div class="dash-stat">
+        <span>Active Engine</span>
+        <strong id="dashEngine">--</strong>
+      </div>
+      <div class="dash-stat">
+        <span>Snapshots</span>
+        <strong id="dashSnapshots">0</strong>
+      </div>
+    </div>
+
+    <!-- Visual Edge AI Workflow -->
+    <div class="workflow-section">
+      <div class="workflow-title">EDGE AI PROCESSING PIPELINE</div>
+      <div class="workflow-grid">
+        <div class="wf-step">
+          <span>01. INPUT</span>
+          <b>Camera / Image / Video</b>
+          <small>Raw media frames</small>
+        </div>
+        <div class="wf-step">
+          <span>02. EDGE</span>
+          <b>Browser Preprocessor</b>
+          <small>640×640 letterbox</small>
+        </div>
+        <div class="wf-step active">
+          <span>03. MODEL</span>
+          <b>YOLO11n ONNX</b>
+          <small>Deep neural network</small>
+        </div>
+        <div class="wf-step active">
+          <span>04. ACCEL</span>
+          <b>WebGPU / WASM</b>
+          <small>Hardware acceleration</small>
+        </div>
+        <div class="wf-step">
+          <span>05. DETECT</span>
+          <b>BBoxes & Labels</b>
+          <small>NMS & Confidence filter</small>
+        </div>
+        <div class="wf-step">
+          <span>06. INSIGHTS</span>
+          <b>Session Analytics</b>
+          <small>CSV & event tracking</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODULE 2, 3, 4: Detection Workspace (Live Camera, Static Image, Video File) -->
+    <section class="section" id="live">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">DETECTION WORKSPACE</div>
+          <h2>Smart Media Object Detection</h2>
+          <p>Select a media source below to run real-time Edge AI inference locally.</p>
+        </div>
+        <div class="engine-pill" id="engineStatus">● Initializing AI</div>
+      </div>
+
+      <!-- Workspace Tabs -->
+      <div class="workspace-tabs">
+        <button class="tab-btn active" id="tabCameraBtn">📹 Live Camera</button>
+        <button class="tab-btn" id="tabImageBtn">🖼️ Image Detection</button>
+        <button class="tab-btn" id="tabVideoBtn">🎞️ Video Detection</button>
+      </div>
+
+      <!-- Error / Alert Banner -->
+      <div id="workspaceAlert" class="alert-box danger" style="display: none;">
+        <span id="alertMessage">An error occurred.</span>
+        <button class="btn small ghost" id="dismissAlertBtn">✕</button>
+      </div>
+
+      <div class="live-grid">
+        <!-- Main Media Card -->
+        <div class="camera-card">
+
+          <!-- TAB 1: Live Webcam Mode -->
+          <div id="viewCamera">
+            <div class="camera-wrap" id="cameraWrap">
+              <video id="video" autoplay playsinline muted></video>
+              <canvas id="overlay"></canvas>
+              <div class="camera-placeholder" id="placeholder">
+                <div class="camera-icon">◉</div>
+                <h3>Camera Ready</h3>
+                <p>Click <b>Start Camera</b> to begin local real-time inference.</p>
+              </div>
+              <div class="camera-badge">LOCAL INFERENCE</div>
+            </div>
+            <div class="controls">
+              <button id="startBtn" class="btn primary">Start Camera</button>
+              <button id="stopBtn" class="btn" disabled>Stop</button>
+              <button id="snapshotBtn" class="btn" disabled>Snapshot</button>
+            </div>
+            <div class="settings">
+              <label>Confidence 
+                <input id="confidence" type="range" min="0.20" max="0.90" step="0.05" value="0.55">
+                <b id="confidenceValue">55%</b>
+              </label>
+              <label class="check">
+                <input id="gpuToggle" type="checkbox" checked> Use WebGPU when available
+              </label>
+            </div>
+          </div>
+
+          <!-- TAB 2: Static Image Detection Mode (Module 3) -->
+          <div id="viewImage" style="display: none;">
+            <div class="dropzone" id="imageDropzone">
+              <div class="dropzone-icon">🖼️</div>
+              <h4>Drag & drop an image here</h4>
+              <p>or click to browse (.jpg, .png, .webp)</p>
+              <input id="imageFileInput" type="file" accept="image/*" style="display: none;">
+            </div>
+            <div class="image-wrap" id="imageWrap" style="display: none;">
+              <img id="imagePreview" alt="Image preview">
+              <canvas id="imageCanvas"></canvas>
+              <div class="camera-badge">LOCAL IMAGE</div>
+            </div>
+            <div class="controls" id="imageControls" style="display: none;">
+              <button id="runImageBtn" class="btn primary">Run Detection</button>
+              <button id="clearImageBtn" class="btn">Clear Image</button>
+              <button id="snapshotImageBtn" class="btn">Snapshot</button>
+              <span id="imageStats" class="saved-msg" style="margin-left: auto;"></span>
+            </div>
+          </div>
+
+          <!-- TAB 3: Video File Detection Mode (Module 4) -->
+          <div id="viewVideo" style="display: none;">
+            <div class="dropzone" id="videoDropzone">
+              <div class="dropzone-icon">🎞️</div>
+              <h4>Drag & drop a video file here</h4>
+              <p>or click to browse (.mp4, .webm, .mov)</p>
+              <input id="videoFileInput" type="file" accept="video/*" style="display: none;">
+            </div>
+            <div class="video-wrap" id="videoWrap" style="display: none;">
+              <video id="fileVideo" playsinline muted controls></video>
+              <canvas id="videoCanvas"></canvas>
+              <div class="camera-badge">LOCAL VIDEO</div>
+            </div>
+            <div class="controls" id="videoControls" style="display: none;">
+              <button id="startVideoDetectBtn" class="btn primary">Start Video Detection</button>
+              <button id="stopVideoDetectBtn" class="btn" disabled>Stop Detection</button>
+              <button id="clearVideoBtn" class="btn">Clear Video</button>
+              <button id="snapshotVideoBtn" class="btn">Snapshot</button>
+              <span id="videoStats" class="saved-msg" style="margin-left: auto;"></span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Telemetry & Live Detections Panel -->
+        <div class="side-stack">
+          <div class="stats-grid">
+            <div class="stat">
+              <span>Inference</span>
+              <strong id="latency">-- ms</strong>
+            </div>
+            <div class="stat">
+              <span>FPS</span>
+              <strong id="fps">--</strong>
+            </div>
+            <div class="stat">
+              <span>Objects</span>
+              <strong id="objectCount">0</strong>
+            </div>
+            <div class="stat">
+              <span>Engine</span>
+              <strong id="engine">--</strong>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-title">
+              <h3>Detected Objects</h3>
+              <span>LIVE</span>
+            </div>
+            <div id="detections" class="detections">
+              <div class="empty">No objects detected yet.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MODULE 5: Analytics Section -->
+    <section class="section" id="analytics">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">SESSION INSIGHTS</div>
+          <h2>Analytics & Event History</h2>
+          <p>Track objects detected across camera, image, and video sessions with temporal cooldown filtering.</p>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button id="exportHistory" class="btn small">Export CSV</button>
+          <button id="clearHistory" class="btn small">Clear History</button>
+        </div>
+      </div>
+      <div class="analytics-grid">
+        <div class="metric-card">
+          <span>Total Detection Events</span>
+          <strong id="analyticsTotal">0</strong>
+          <small>Confirmed across processed frames</small>
+        </div>
+        <div class="metric-card">
+          <span>Unique Classes</span>
+          <strong id="analyticsClasses">0</strong>
+          <small>Distinct object labels observed</small>
+        </div>
+        <div class="metric-card">
+          <span>Most Detected Object</span>
+          <strong id="analyticsTopObject">None</strong>
+          <small>Highest occurrence in session</small>
+        </div>
+        <div class="metric-card">
+          <span>Snapshots Saved</span>
+          <strong id="analyticsSnapshots">0</strong>
+          <small>Captured during detection</small>
+        </div>
+      </div>
+      <div class="analytics-layout">
+        <div class="panel">
+          <div class="panel-title">
+            <h3>Object Frequency</h3>
+            <span>TOP CLASSES</span>
+          </div>
+          <div id="analyticsBars" class="bars">
+            <div class="empty">Start detection to build analytics.</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">
+            <h3>Detection History</h3>
+            <span>EVENT STREAM</span>
+          </div>
+          <div id="history" class="history">
+            <div class="empty">No detection history yet.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MODULE 7: Architecture Page -->
+    <section class="section" id="architecture">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">SYSTEM DESIGN</div>
+          <h2>Edge AI Architecture</h2>
+          <p>How EdgeVision AI executes local inference without reliance on cloud inference servers.</p>
+        </div>
+      </div>
+      <div class="architecture">
+        <div class="arch-node">
+          <b>01</b>
+          <span>Camera / Media</span>
+          <small>Live webcam, images, video</small>
+        </div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-node">
+          <b>02</b>
+          <span>Browser Edge Device</span>
+          <small>Local letterbox & RGB normalizer</small>
+        </div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-node active">
+          <b>03</b>
+          <span>YOLO11n + ONNX</span>
+          <small>WebGPU / WASM execution</small>
+        </div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-node">
+          <b>04</b>
+          <span>Object Detection</span>
+          <small>BBoxes, labels, confidence</small>
+        </div>
+      </div>
+      <div class="feature-grid">
+        <div>
+          <b>⚡ Ultra-Low Latency</b>
+          <span>Frames are processed on-device, eliminating cloud round-trip network delays.</span>
+        </div>
+        <div>
+          <b>🔒 Privacy-Aware</b>
+          <span>Video frames never leave the user's browser, preventing external leaks.</span>
+        </div>
+        <div>
+          <b>📶 Zero Cloud Bandwidth</b>
+          <span>No expensive continuous video streaming to remote inference servers.</span>
+        </div>
+        <div>
+          <b>🧠 WebGPU Acceleration</b>
+          <span>Leverages user GPU shaders with seamless automatic WASM CPU fallback.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- MODULE 8: Privacy Section -->
+    <section class="section" id="privacy">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">DATA GOVERNANCE</div>
+          <h2>Privacy & Security</h2>
+          <p>Local-first computing ensures sensitive camera streams remain private.</p>
+        </div>
+      </div>
+      <div class="privacy-card">
+        <div class="privacy-icon">🛡️</div>
+        <div>
+          <h3>Local Browser Processing Guarantee</h3>
+          <p>
+            Images, camera frames, and uploaded videos are processed locally in the browser. The application does not require a cloud server for inference. All preprocessing, model evaluation, and bounding box drawing happen on your device's GPU and CPU. No media is stored or transmitted externally.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- MODULE 6 & 12: Settings & Model Center -->
+    <section class="section" id="settings">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">CONTROL CENTER</div>
+          <h2>Settings & Model</h2>
+          <p>Configure detection behavior and view active YOLO model specifications.</p>
+        </div>
+        <div class="engine-pill">LOCAL CONFIGURATION</div>
+      </div>
+      <div class="settings-grid">
+        <div class="panel settings-panel">
+          <div class="panel-title">
+            <h3>Detection Settings</h3>
+            <span>LIVE</span>
+          </div>
+          <label class="setting-row">
+            <span>Confidence threshold</span>
+            <div class="setting-control">
+              <input id="settingsConfidence" type="range" min="0.20" max="0.90" step="0.05" value="0.55">
+              <b id="settingsConfidenceValue">55%</b>
+            </div>
+          </label>
+          <label class="setting-row">
+            <span>Inference engine</span>
+            <select id="engineSelect">
+              <option value="auto">Auto (WebGPU → CPU)</option>
+              <option value="webgpu">WebGPU</option>
+              <option value="wasm">CPU / WASM</option>
+            </select>
+          </label>
+          <label class="setting-row">
+            <span>Camera source</span>
+            <select id="cameraSelect">
+              <option value="environment">Back / Environment</option>
+              <option value="user">Front / User</option>
+            </select>
+          </label>
+          <div style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
+            <button id="saveSettings" class="btn primary">Save Settings</button>
+            <button id="resetSettingsBtn" class="btn">Reset to Default</button>
+            <button id="settingsClearHistoryBtn" class="btn">Clear History</button>
+          </div>
+          <span id="settingsSaved" class="saved-msg" style="display: block; margin-top: 8px;"></span>
+        </div>
+
+        <div class="panel settings-panel">
+          <div class="panel-title">
+            <h3>AI Model</h3>
+            <span id="modelState">YOLO11n ACTIVE</span>
+          </div>
+          <div class="model-card active-model" id="defaultModelCard">
+            <div class="model-icon">⚡</div>
+            <div>
+              <b>YOLO11n (Pretrained)</b>
+              <small>Default lightweight Edge AI model (COCO 80 classes)</small>
+            </div>
+            <span class="model-badge" id="defaultModelBadge">ACTIVE</span>
+          </div>
+          <div class="model-card" id="customModelCard">
+            <div class="model-icon">🧠</div>
+            <div>
+              <b>Custom YOLO ONNX (Optional)</b>
+              <small>Compatible with custom YOLO exports</small>
+            </div>
+            <label class="upload-btn">
+              <span id="chooseModelLabel">Choose .onnx</span>
+              <input id="customModelInput" type="file" accept=".onnx,application/octet-stream">
+            </label>
+          </div>
+          <label class="class-label">
+            Custom model class names <small>One class per line (e.g. "person" or "0: person"), in exact training order.</small>
+            <textarea id="customClasses" rows="4" placeholder="person
 mobile
 bottle
 laptop
-book"></textarea></label>
-<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-<button id="loadCustomModel" class="btn primary">Load Custom Model</button>
-<button id="resetModelBtn" class="btn">Reset to Pretrained YOLO11n</button>
-</div>
-<div id="customModelStatus" class="model-note">Pretrained YOLO11n model active. Ready to load custom model.</div>
-<div class="model-info-box" id="modelInfoBox">
-<div class="model-info-head"><span>ACTIVE MODEL SPECIFICATIONS</span><span class="info-status-pill" id="infoStatusPill">Active</span></div>
-<div class="info-grid">
-<div class="info-item"><span class="info-lbl">Active Model</span><b id="infoModelName">YOLO11n</b></div>
-<div class="info-item"><span class="info-lbl">Engine</span><b id="infoEngine">WebGPU</b></div>
-<div class="info-item"><span class="info-lbl">Input Shape</span><b id="infoInputShape">1 × 3 × 640 × 640</b></div>
-<div class="info-item"><span class="info-lbl">Output Shape</span><b id="infoOutputShape">[1, 84, 8400]</b></div>
-<div class="info-item"><span class="info-lbl">Tensor Layout</span><b id="infoLayout">Layout A [1, 4+C, N]</b></div>
-<div class="info-item"><span class="info-lbl">Classes Count</span><b id="infoClassesCount">80 classes</b></div>
-</div>
-<div class="info-classes-wrap">
-<span class="info-lbl">Class Names Preview</span>
-<div id="infoClassesList" class="class-tags-preview"></div>
-</div>
-</div>
-</div>
-</div></section>
-</main><footer>EDGEVISION AI • EDGE AI-BASED REAL-TIME OBJECT DETECTION FOR SMART MEDIA APPLICATIONS</footer>
-<script type="module" src="app.js"></script>
-</body></html>
+book"></textarea>
+          </label>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;">
+            <button id="loadCustomModel" class="btn primary">Load Custom Model</button>
+            <button id="resetModelBtn" class="btn">Reset to Pretrained YOLO11n</button>
+          </div>
+          <div id="customModelStatus" class="model-note">Pretrained YOLO11n model active. Ready for local inference.</div>
+
+          <div class="model-info-box" id="modelInfoBox">
+            <div class="model-info-head">
+              <span>ACTIVE MODEL SPECIFICATIONS</span>
+              <span class="info-status-pill" id="infoStatusPill">Active</span>
+            </div>
+            <div class="info-grid">
+              <div class="info-item"><span class="info-lbl">Active Model</span><b id="infoModelName">YOLO11n</b></div>
+              <div class="info-item"><span class="info-lbl">Engine</span><b id="infoEngine">WebGPU</b></div>
+              <div class="info-item"><span class="info-lbl">Input Shape</span><b id="infoInputShape">1 × 3 × 640 × 640</b></div>
+              <div class="info-item"><span class="info-lbl">Output Shape</span><b id="infoOutputShape">[1, 84, 8400]</b></div>
+              <div class="info-item"><span class="info-lbl">Tensor Layout</span><b id="infoLayout">Layout A [1, 4+C, N]</b></div>
+              <div class="info-item"><span class="info-lbl">Classes Count</span><b id="infoClassesCount">80 classes</b></div>
+            </div>
+            <div class="info-classes-wrap">
+              <span class="info-lbl">Class Names Preview</span>
+              <div id="infoClassesList" class="class-tags-preview"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MODULE 14: Project Information / About Section -->
+    <section class="section" id="about">
+      <div class="section-head">
+        <div>
+          <div class="eyebrow">ACADEMIC OVERVIEW</div>
+          <h2>About EdgeVision AI</h2>
+          <p>Edge AI-based Real-time Object Detection for Smart Media Applications.</p>
+        </div>
+      </div>
+      <div class="about-grid">
+        <div class="about-card">
+          <h3>Project Specifications</h3>
+          <p>
+            EdgeVision AI is a 2nd-year B.Tech computer science and engineering project demonstrating the viability of on-device neural network execution. By compiling YOLO11n into an optimized ONNX computational graph and executing it directly inside the browser using WebGPU and WebAssembly SIMD, real-time object detection is achieved without cloud servers.
+          </p>
+          <div class="workflow-title" style="margin-top: 16px;">Core Technology Stack</div>
+          <div class="tech-tags">
+            <span class="tech-tag">HTML5 / Modern DOM</span>
+            <span class="tech-tag">CSS3 (Grid & Flexbox)</span>
+            <span class="tech-tag">JavaScript (ES6 Modules)</span>
+            <span class="tech-tag">Ultralytics YOLO11n</span>
+            <span class="tech-tag">ONNX Runtime Web 1.21.0</span>
+            <span class="tech-tag">WebGPU API</span>
+            <span class="tech-tag">WebAssembly (WASM SIMD)</span>
+            <span class="tech-tag">WebRTC MediaStream</span>
+          </div>
+        </div>
+        <div class="about-card">
+          <h3>Smart Media Applications</h3>
+          <div class="app-list">
+            <div class="app-item">
+              <span class="app-icon">📹</span>
+              <div><b>Smart Surveillance:</b> Edge perimeter monitoring without streaming sensitive video to the cloud.</div>
+            </div>
+            <div class="app-item">
+              <span class="app-icon">🚦</span>
+              <div><b>Traffic & Pedestrian Analysis:</b> Real-time counting of vehicles, bicycles, and pedestrians.</div>
+            </div>
+            <div class="app-item">
+              <span class="app-icon">🎓</span>
+              <div><b>Smart Classrooms:</b> Educational AI demonstrations illustrating edge computer vision principles.</div>
+            </div>
+            <div class="app-item">
+              <span class="app-icon">🛒</span>
+              <div><b>Intelligent Retail:</b> On-premise customer engagement and shelf item tracking with zero bandwidth costs.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    EDGEVISION AI • 2ND-YEAR B.TECH COMPUTER SCIENCE & ENGINEERING PROJECT • LOCAL EDGE AI OBJECT DETECTION
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

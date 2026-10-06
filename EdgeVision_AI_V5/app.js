@@ -22,11 +22,35 @@ const COCO = [
   "hair drier","toothbrush"
 ];
 
-// DOM references - Live Detection & Camera
+// ---------------- DOM References ----------------
+// Navigation & Status
+const navStatusEl = document.querySelector("#navStatus");
+const statusEl = document.querySelector("#engineStatus");
+const workspaceAlert = document.querySelector("#workspaceAlert");
+const alertMessage = document.querySelector("#alertMessage");
+const dismissAlertBtn = document.querySelector("#dismissAlertBtn");
+
+// Dashboard Live Metrics
+const dashTotal = document.querySelector("#dashTotal");
+const dashClasses = document.querySelector("#dashClasses");
+const dashFps = document.querySelector("#dashFps");
+const dashLatency = document.querySelector("#dashLatency");
+const dashEngine = document.querySelector("#dashEngine");
+const dashSnapshots = document.querySelector("#dashSnapshots");
+
+// Workspace Tabs
+const tabCameraBtn = document.querySelector("#tabCameraBtn");
+const tabImageBtn = document.querySelector("#tabImageBtn");
+const tabVideoBtn = document.querySelector("#tabVideoBtn");
+const viewCamera = document.querySelector("#viewCamera");
+const viewImage = document.querySelector("#viewImage");
+const viewVideo = document.querySelector("#viewVideo");
+
+// Camera Mode
 const video = document.querySelector("#video");
 const canvas = document.querySelector("#overlay");
 const ctx = canvas.getContext("2d");
-const cameraWrap = document.querySelector(".camera-wrap");
+const cameraWrap = document.querySelector("#cameraWrap");
 const placeholder = document.querySelector("#placeholder");
 const startBtn = document.querySelector("#startBtn");
 const stopBtn = document.querySelector("#stopBtn");
@@ -35,22 +59,61 @@ const confSlider = document.querySelector("#confidence");
 const confValue = document.querySelector("#confidenceValue");
 const gpuToggle = document.querySelector("#gpuToggle");
 
-// DOM references - Settings & Navigation
-const settingsConfidence = document.querySelector("#settingsConfidence");
-const settingsConfidenceValue = document.querySelector("#settingsConfidenceValue");
-const engineSelect = document.querySelector("#engineSelect");
-const cameraSelect = document.querySelector("#cameraSelect");
-const saveSettingsBtn = document.querySelector("#saveSettings");
-const settingsSaved = document.querySelector("#settingsSaved");
-const statusEl = document.querySelector("#engineStatus");
-const navStatusEl = document.querySelector("#navStatus");
+// Image Mode
+const imageDropzone = document.querySelector("#imageDropzone");
+const imageFileInput = document.querySelector("#imageFileInput");
+const imageWrap = document.querySelector("#imageWrap");
+const imagePreview = document.querySelector("#imagePreview");
+const imageCanvas = document.querySelector("#imageCanvas");
+const imageCtx = imageCanvas.getContext("2d");
+const imageControls = document.querySelector("#imageControls");
+const runImageBtn = document.querySelector("#runImageBtn");
+const clearImageBtn = document.querySelector("#clearImageBtn");
+const snapshotImageBtn = document.querySelector("#snapshotImageBtn");
+const imageStats = document.querySelector("#imageStats");
+
+// Video Mode
+const videoDropzone = document.querySelector("#videoDropzone");
+const videoFileInput = document.querySelector("#videoFileInput");
+const videoWrap = document.querySelector("#videoWrap");
+const fileVideo = document.querySelector("#fileVideo");
+const videoCanvas = document.querySelector("#videoCanvas");
+const videoCtx = videoCanvas.getContext("2d");
+const videoControls = document.querySelector("#videoControls");
+const startVideoDetectBtn = document.querySelector("#startVideoDetectBtn");
+const stopVideoDetectBtn = document.querySelector("#stopVideoDetectBtn");
+const clearVideoBtn = document.querySelector("#clearVideoBtn");
+const snapshotVideoBtn = document.querySelector("#snapshotVideoBtn");
+const videoStats = document.querySelector("#videoStats");
+
+// Telemetry & Results
 const latencyEl = document.querySelector("#latency");
 const fpsEl = document.querySelector("#fps");
 const objectCountEl = document.querySelector("#objectCount");
 const engineEl = document.querySelector("#engine");
 const detectionsEl = document.querySelector("#detections");
 
-// DOM references - AI Model & Custom Loader (Phase 3)
+// Analytics
+const totalEl = document.querySelector("#analyticsTotal");
+const classesEl = document.querySelector("#analyticsClasses");
+const snapshotsEl = document.querySelector("#analyticsSnapshots");
+const topObjectEl = document.querySelector("#analyticsTopObject");
+const barsEl = document.querySelector("#analyticsBars");
+const historyEl = document.querySelector("#history");
+const exportBtn = document.querySelector("#exportHistory");
+const clearBtn = document.querySelector("#clearHistory");
+
+// Settings
+const settingsConfidence = document.querySelector("#settingsConfidence");
+const settingsConfidenceValue = document.querySelector("#settingsConfidenceValue");
+const engineSelect = document.querySelector("#engineSelect");
+const cameraSelect = document.querySelector("#cameraSelect");
+const saveSettingsBtn = document.querySelector("#saveSettings");
+const resetSettingsBtn = document.querySelector("#resetSettingsBtn");
+const settingsClearHistoryBtn = document.querySelector("#settingsClearHistoryBtn");
+const settingsSaved = document.querySelector("#settingsSaved");
+
+// AI Model & Custom Loader
 const customModelInput = document.querySelector("#customModelInput");
 const chooseModelLabel = document.querySelector("#chooseModelLabel");
 const customClassesInput = document.querySelector("#customClasses");
@@ -62,7 +125,7 @@ const defaultModelCard = document.querySelector("#defaultModelCard");
 const customModelCard = document.querySelector("#customModelCard");
 const defaultModelBadge = document.querySelector("#defaultModelBadge");
 
-// DOM references - Model Information Panel (Phase 3)
+// Model Information Panel
 const infoModelName = document.querySelector("#infoModelName");
 const infoEngine = document.querySelector("#infoEngine");
 const infoInputShape = document.querySelector("#infoInputShape");
@@ -72,16 +135,20 @@ const infoClassesCount = document.querySelector("#infoClassesCount");
 const infoClassesList = document.querySelector("#infoClassesList");
 const infoStatusPill = document.querySelector("#infoStatusPill");
 
-// Inference state
+// ---------------- State ----------------
 let session = null;
 let stream = null;
-let running = false;
+let cameraRunning = false;
+let videoDetecting = false;
 let busy = false;
 let fpsFrames = 0;
 let fpsLast = performance.now();
 let currentDetections = [];
+let activeMode = "camera"; // "camera" | "image" | "video"
+let loadedImageDetections = [];
+let videoFileUrl = null;
 
-// Preprocessing persistent buffers (Zero memory churn per frame)
+// Preprocessing persistent buffers (Zero-allocation)
 const PREPROCESS_SIZE = 640;
 const preprocessCanvas = typeof OffscreenCanvas !== "undefined"
   ? new OffscreenCanvas(PREPROCESS_SIZE, PREPROCESS_SIZE)
@@ -91,7 +158,31 @@ preprocessCanvas.height = PREPROCESS_SIZE;
 const preprocessCtx = preprocessCanvas.getContext("2d", { willReadFrequently: true });
 const inputTensorBuffer = new Float32Array(1 * 3 * PREPROCESS_SIZE * PREPROCESS_SIZE);
 
-// Status helper: keeps Live workspace status and Nav status synchronized
+// Analytics State
+const evState = {
+  total: 0,
+  classes: {},
+  history: [],
+  snapshots: 0,
+  lastSignature: "",
+  stableFrames: 0,
+  lastRecordedAt: {}
+};
+
+// ---------------- Alerts & Status ----------------
+function showAlert(message, isDanger = true) {
+  if (!workspaceAlert) return;
+  workspaceAlert.className = `alert-box ${isDanger ? 'danger' : 'info'}`;
+  alertMessage.textContent = message;
+  workspaceAlert.style.display = "flex";
+}
+
+function hideAlert() {
+  if (workspaceAlert) workspaceAlert.style.display = "none";
+}
+
+dismissAlertBtn?.addEventListener("click", hideAlert);
+
 function setStatus(text, good = true) {
   if (statusEl) {
     statusEl.textContent = `● ${text}`;
@@ -103,7 +194,22 @@ function setStatus(text, good = true) {
   }
 }
 
-// Two-way confidence synchronization
+function updateTelemetry(ms, fps, count, engineName) {
+  if (latencyEl && ms !== undefined) latencyEl.textContent = `${Math.round(ms)} ms`;
+  if (fpsEl && fps !== undefined) fpsEl.textContent = String(fps);
+  if (objectCountEl && count !== undefined) objectCountEl.textContent = String(count);
+  if (engineEl && engineName) engineEl.textContent = engineName;
+
+  // Sync with Dashboard Metrics
+  if (dashFps && fps !== undefined) dashFps.textContent = String(fps);
+  if (dashLatency && ms !== undefined) dashLatency.textContent = `${Math.round(ms)} ms`;
+  if (dashEngine && engineName) dashEngine.textContent = engineName;
+  if (dashTotal) dashTotal.textContent = String(evState.total);
+  if (dashClasses) dashClasses.textContent = String(Object.keys(evState.classes).length);
+  if (dashSnapshots) dashSnapshots.textContent = String(evState.snapshots);
+}
+
+// ---------------- Two-way Confidence Synchronization ----------------
 function syncConfidence(value) {
   const v = Number(value);
   if (confSlider) confSlider.value = String(v);
@@ -112,15 +218,10 @@ function syncConfidence(value) {
   if (settingsConfidenceValue) settingsConfidenceValue.textContent = `${Math.round(v * 100)}%`;
 }
 
-confSlider?.addEventListener("input", (e) => {
-  syncConfidence(e.target.value);
-});
+confSlider?.addEventListener("input", (e) => syncConfidence(e.target.value));
+settingsConfidence?.addEventListener("input", (e) => syncConfidence(e.target.value));
 
-settingsConfidence?.addEventListener("input", (e) => {
-  syncConfidence(e.target.value);
-});
-
-// Robust model loader with WebGPU -> WASM fallback
+// ---------------- Model Loading & Provider Fallback ----------------
 async function createSessionWithFallback(modelSource, preferredEngine) {
   const wantWebGpu = preferredEngine !== "wasm" && typeof navigator !== "undefined" && Boolean(navigator.gpu);
 
@@ -151,8 +252,8 @@ function inspectYoloTensor(dims) {
   const d0 = dims[dims.length - 2];
   const d1 = dims[dims.length - 1];
 
-  // Layout A: [..., 4 + C, N] (e.g. [1, 84, 8400] for 80 classes, [1, 9, 8400] for 5 classes)
-  // Layout B: [..., N, 4 + C] (e.g. [1, 8400, 84] for 80 classes, [1, 8400, 9] for 5 classes)
+  // Layout A: [..., 4 + C, N]
+  // Layout B: [..., N, 4 + C]
   if (d0 < d1 && d0 > 4) {
     const classCount = d0 - 4;
     const anchors = d1;
@@ -165,7 +266,6 @@ function inspectYoloTensor(dims) {
   return null;
 }
 
-// Helper to parse custom class names formatted as lines, indexed ("0: person", "0 = person"), or lists
 function parseClassNames(text) {
   if (!text) return [];
   const trimmed = text.trim();
@@ -177,7 +277,6 @@ function parseClassNames(text) {
       }
     } catch {}
   }
-
   const lines = trimmed.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const result = [];
   for (const line of lines) {
@@ -185,7 +284,6 @@ function parseClassNames(text) {
       const parts = line.split(",").map(p => p.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean);
       result.push(...parts);
     } else {
-      // Strip index prefixes like "0 = person", "0: person", "0 - person", "#0 person"
       const cleaned = line.replace(/^(\d+\s*[:=\-.]\s*|#\d+\s*)/, "").trim().replace(/^['"]|['"]$/g, "");
       if (cleaned) result.push(cleaned);
     }
@@ -193,7 +291,6 @@ function parseClassNames(text) {
   return result;
 }
 
-// Render Model Information Panel
 function renderModelInfo() {
   const isCustom = Boolean(activeClassNames && activeClassNames.length > 0 && activeModelUrl !== DEFAULT_MODEL_URL);
   const names = isCustom ? activeClassNames : COCO;
@@ -238,10 +335,9 @@ async function loadModel() {
     session = result.session;
     const isGpu = result.provider === "webgpu";
     activeEngineName = isGpu ? "WebGPU" : "WASM CPU";
-    if (engineEl) engineEl.textContent = activeEngineName;
+    updateTelemetry(undefined, undefined, undefined, activeEngineName);
     setStatus(isGpu ? "WebGPU Edge AI Ready" : "CPU Edge AI Ready");
 
-    // Perform dry-run inspection on initialization to determine real tensor dimensions
     try {
       const dummyTensor = new ort.Tensor("float32", inputTensorBuffer, [1, 3, PREPROCESS_SIZE, PREPROCESS_SIZE]);
       const inputName = session.inputNames[0];
@@ -252,18 +348,19 @@ async function loadModel() {
         activeLayoutInfo = inspectYoloTensor(output.dims) || activeLayoutInfo;
       }
     } catch (dryErr) {
-      console.warn("Dry run tensor inspection:", dryErr);
+      console.warn("Dry run inspection:", dryErr);
     }
-
     renderModelInfo();
   } catch (err) {
     console.error("Failed to load model:", err);
     setStatus("Model load failed", false);
     if (engineEl) engineEl.textContent = "Error";
+    showAlert("Model failed to load. Check your internet connection for the initial pretrained model download.", true);
     throw err;
   }
 }
 
+// ---------------- Generic Preprocessing & Universal Decoder ----------------
 function letterbox(sourceW, sourceH, target = PREPROCESS_SIZE) {
   const scale = Math.min(target / sourceW, target / sourceH);
   const w = Math.round(sourceW * scale);
@@ -271,15 +368,11 @@ function letterbox(sourceW, sourceH, target = PREPROCESS_SIZE) {
   return { scale, w, h, dx: (target - w) / 2, dy: (target - h) / 2 };
 }
 
-// Optimized zero-allocation preprocessing
-function preprocess() {
-  const srcW = video.videoWidth;
-  const srcH = video.videoHeight;
+function preprocessMedia(sourceElement, srcW, srcH) {
   const lb = letterbox(srcW, srcH, PREPROCESS_SIZE);
-
   preprocessCtx.fillStyle = "#000";
   preprocessCtx.fillRect(0, 0, PREPROCESS_SIZE, PREPROCESS_SIZE);
-  preprocessCtx.drawImage(video, lb.dx, lb.dy, lb.w, lb.h);
+  preprocessCtx.drawImage(sourceElement, lb.dx, lb.dy, lb.w, lb.h);
 
   const imgData = preprocessCtx.getImageData(0, 0, PREPROCESS_SIZE, PREPROCESS_SIZE).data;
   const planeSize = PREPROCESS_SIZE * PREPROCESS_SIZE;
@@ -316,7 +409,6 @@ function nms(boxes, threshold = 0.45) {
   return keep;
 }
 
-// Universal YOLO decoder supporting Layout A [1, 4+C, N] and Layout B [1, N, 4+C]
 function decode(output, lb, sourceW, sourceH) {
   const data = output.data;
   const dims = output.dims || [1, 84, 8400];
@@ -334,10 +426,8 @@ function decode(output, lb, sourceW, sourceH) {
   const threshold = Number(confSlider.value);
 
   if (layout === "A") {
-    // Layout A: [1, 4 + classCount, anchors]
     for (let a = 0; a < anchors; a++) {
-      let bestClass = -1;
-      let bestScore = 0;
+      let bestClass = -1, bestScore = 0;
       for (let c = 0; c < classCount; c++) {
         const score = data[(4 + c) * anchors + a];
         if (score > bestScore) {
@@ -366,12 +456,10 @@ function decode(output, lb, sourceW, sourceH) {
       candidates.push({ x1, y1, x2, y2, score: bestScore, label });
     }
   } else {
-    // Layout B: [1, anchors, 4 + classCount]
     const stride = 4 + classCount;
     for (let a = 0; a < anchors; a++) {
       const offset = a * stride;
-      let bestClass = -1;
-      let bestScore = 0;
+      let bestClass = -1, bestScore = 0;
       for (let c = 0; c < classCount; c++) {
         const score = data[offset + 4 + c];
         if (score > bestScore) {
@@ -405,31 +493,29 @@ function decode(output, lb, sourceW, sourceH) {
   return nms(candidates.slice(0, 300), 0.45).slice(0, 50);
 }
 
-function drawDetections(detections) {
-  const w = video.videoWidth, h = video.videoHeight;
-  if (!w || !h) return;
-
-  // Only resize canvas backing store if dimensions changed
-  if (canvas.width !== w || canvas.height !== h) {
-    canvas.width = w;
-    canvas.height = h;
+// ---------------- Drawing & UI Updates ----------------
+function renderBoundingBoxes(targetCanvas, targetCtx, detections, srcW, srcH) {
+  if (!srcW || !srcH) return;
+  if (targetCanvas.width !== srcW || targetCanvas.height !== srcH) {
+    targetCanvas.width = srcW;
+    targetCanvas.height = srcH;
   }
-
-  ctx.clearRect(0, 0, w, h);
-  ctx.lineWidth = Math.max(2, w / 500);
-  ctx.font = `${Math.max(12, w / 75)}px system-ui`;
+  targetCtx.clearRect(0, 0, srcW, srcH);
+  targetCtx.lineWidth = Math.max(2, srcW / 500);
+  targetCtx.font = `${Math.max(12, srcW / 75)}px system-ui, sans-serif`;
 
   for (const d of detections) {
-    const color = "#5eead4";
-    ctx.strokeStyle = color;
-    ctx.fillStyle = "rgba(5,15,28,.78)";
-    ctx.strokeRect(d.x1, d.y1, d.x2 - d.x1, d.y2 - d.y1);
+    const color = "#50e6d0";
+    targetCtx.strokeStyle = color;
+    targetCtx.fillStyle = "rgba(5, 15, 28, 0.82)";
+    targetCtx.strokeRect(d.x1, d.y1, d.x2 - d.x1, d.y2 - d.y1);
+
     const text = `${d.label} ${Math.round(d.score * 100)}%`;
-    const tw = ctx.measureText(text).width + 12;
-    const th = 25;
-    ctx.fillRect(d.x1, Math.max(0, d.y1 - th), tw, th);
-    ctx.fillStyle = color;
-    ctx.fillText(text, d.x1 + 6, Math.max(17, d.y1 - 7));
+    const tw = targetCtx.measureText(text).width + 12;
+    const th = 24;
+    targetCtx.fillRect(d.x1, Math.max(0, d.y1 - th), tw, th);
+    targetCtx.fillStyle = color;
+    targetCtx.fillText(text, d.x1 + 6, Math.max(16, d.y1 - 6));
   }
 }
 
@@ -449,9 +535,14 @@ function updateDetectionList(detections) {
     }).join("");
 }
 
-// Clean, modular inference pipeline
-async function inferFrame() {
-  if (!session || !running || busy || video.readyState < 2) return;
+// ---------------- MODULE 2: Live Camera Detection ----------------
+function updateCameraAspect() {
+  if (!cameraWrap || !video.videoWidth || !video.videoHeight) return;
+  cameraWrap.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+}
+
+async function inferCameraFrame() {
+  if (!session || !cameraRunning || busy || video.readyState < 2) return;
   const srcW = video.videoWidth;
   const srcH = video.videoHeight;
   if (!srcW || !srcH) return;
@@ -460,170 +551,460 @@ async function inferFrame() {
   const t0 = performance.now();
 
   try {
-    const { input, lb } = preprocess();
+    const { input, lb } = preprocessMedia(video, srcW, srcH);
     const tensor = new ort.Tensor("float32", input, [1, 3, PREPROCESS_SIZE, PREPROCESS_SIZE]);
     const inputName = session.inputNames[0];
     const outputMap = await session.run({ [inputName]: tensor });
     const output = outputMap[session.outputNames[0]];
 
     currentDetections = decode(output, lb, srcW, srcH);
-    drawDetections(currentDetections);
+    renderBoundingBoxes(canvas, ctx, currentDetections, srcW, srcH);
     updateDetectionList(currentDetections);
-    if (objectCountEl) objectCountEl.textContent = String(currentDetections.length);
 
-    // Feed detections directly to analytics using the active model's class names
-    if (running) {
-      recordDetectionFrame(currentDetections);
-    }
+    if (cameraRunning) recordDetectionFrame(currentDetections);
 
     const ms = performance.now() - t0;
-    if (latencyEl) latencyEl.textContent = `${Math.round(ms)} ms`;
     fpsFrames++;
     const now = performance.now();
+    let currentFps = fpsEl ? fpsEl.textContent : "--";
     if (now - fpsLast >= 1000) {
-      if (fpsEl) fpsEl.textContent = String(fpsFrames);
+      currentFps = String(fpsFrames);
       fpsFrames = 0;
       fpsLast = now;
     }
+    updateTelemetry(ms, currentFps, currentDetections.length, activeEngineName);
   } catch (err) {
-    console.error("Inference error:", err);
+    console.error("Camera inference error:", err);
     setStatus("Inference error", false);
   } finally {
     busy = false;
   }
 }
 
-function loop() {
-  if (!running) return;
-  inferFrame().finally(() => {
-    if (running) requestAnimationFrame(loop);
+function cameraLoop() {
+  if (!cameraRunning) return;
+  inferCameraFrame().finally(() => {
+    if (cameraRunning) requestAnimationFrame(cameraLoop);
   });
-}
-
-function updateCameraAspect() {
-  if (!cameraWrap || !video.videoWidth || !video.videoHeight) return;
-  cameraWrap.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
 }
 
 async function startCamera() {
+  hideAlert();
   if (!session) await loadModel();
-  stream = await navigator.mediaDevices.getUserMedia({
-    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: cameraSelect?.value || "environment" },
-    audio: false
-  });
-  video.srcObject = stream;
-  await video.play();
 
-  updateCameraAspect();
-  video.addEventListener("loadedmetadata", updateCameraAspect, { once: true });
+  try {
+    const deviceId = cameraSelect?.value;
+    const constraints = {
+      video: deviceId && deviceId !== "user" && deviceId !== "environment"
+        ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        : { facingMode: deviceId || "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    };
 
-  placeholder.style.display = "none";
-  startBtn.disabled = true;
-  stopBtn.disabled = false;
-  snapshotBtn.disabled = false;
-  running = true;
-  setStatus("Live Edge AI Running");
-  requestAnimationFrame(loop);
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = stream;
+    await video.play();
+
+    updateCameraAspect();
+    video.addEventListener("loadedmetadata", updateCameraAspect, { once: true });
+
+    placeholder.style.display = "none";
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    snapshotBtn.disabled = false;
+    cameraRunning = true;
+    setStatus("Live Edge AI Running");
+    requestAnimationFrame(cameraLoop);
+  } catch (err) {
+    console.error("Camera error:", err);
+    let msg = "Could not start camera. Please allow camera permissions and use HTTPS or localhost.";
+    if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+      msg = "Camera permission denied. Please allow camera access in browser site settings.";
+    } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+      msg = "No camera hardware detected on this device.";
+    } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+      msg = "Camera is already in use by another application.";
+    }
+    showAlert(msg, true);
+    setStatus("Camera unavailable", false);
+  }
 }
 
 function stopCamera() {
-  running = false;
+  cameraRunning = false;
   if (stream) stream.getTracks().forEach(t => t.stop());
   stream = null;
   video.srcObject = null;
 
-  if (cameraWrap) {
-    cameraWrap.style.aspectRatio = "16 / 9";
-  }
-
+  if (cameraWrap) cameraWrap.style.aspectRatio = "16 / 9";
   placeholder.style.display = "grid";
   startBtn.disabled = false;
   stopBtn.disabled = true;
   snapshotBtn.disabled = true;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   currentDetections = [];
-  if (objectCountEl) objectCountEl.textContent = "0";
+  updateTelemetry(undefined, "--", 0, activeEngineName);
   if (detectionsEl) detectionsEl.innerHTML = '<div class="empty">Camera stopped.</div>';
   setStatus("AI Ready");
 }
 
-snapshotBtn?.addEventListener("click", () => {
-  if (!video.videoWidth || !video.videoHeight) return;
+startBtn?.addEventListener("click", startCamera);
+stopBtn?.addEventListener("click", stopCamera);
+
+// Dynamic Camera Enumeration
+async function populateCameraDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices || !cameraSelect) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoInputs = devices.filter(d => d.kind === "videoinput");
+    if (videoInputs.length > 0) {
+      cameraSelect.innerHTML = videoInputs.map((d, i) => `
+        <option value="${d.deviceId}">${d.label || `Camera ${i + 1}`}</option>
+      `).join("") + '<option value="user">Front / User</option><option value="environment">Back / Environment</option>';
+    }
+  } catch (e) {
+    console.warn("Could not enumerate camera devices:", e);
+  }
+}
+
+// ---------------- MODULE 3: Static Image Detection ----------------
+function handleImageFile(file) {
+  if (!file) return;
+  if (!file.type.startsWith("image/")) {
+    showAlert("Invalid file format. Please upload an image (.jpg, .png, .webp).", true);
+    return;
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    showAlert("Image file is very large (>25MB). Processing may take a few seconds.", false);
+  } else {
+    hideAlert();
+  }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    imagePreview.onload = () => {
+      imageDropzone.style.display = "none";
+      imageWrap.style.display = "flex";
+      imageControls.style.display = "flex";
+      imageCanvas.width = imagePreview.naturalWidth;
+      imageCanvas.height = imagePreview.naturalHeight;
+      imageCtx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+      imageStats.textContent = `Ready: ${imagePreview.naturalWidth}×${imagePreview.naturalHeight}px`;
+      runImageDetection();
+    };
+    imagePreview.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function runImageDetection() {
+  if (!session) await loadModel();
+  const srcW = imagePreview.naturalWidth;
+  const srcH = imagePreview.naturalHeight;
+  if (!srcW || !srcH) return;
+
+  setStatus("Analyzing image locally…");
+  const t0 = performance.now();
+
+  try {
+    const { input, lb } = preprocessMedia(imagePreview, srcW, srcH);
+    const tensor = new ort.Tensor("float32", input, [1, 3, PREPROCESS_SIZE, PREPROCESS_SIZE]);
+    const inputName = session.inputNames[0];
+    const outputMap = await session.run({ [inputName]: tensor });
+    const output = outputMap[session.outputNames[0]];
+
+    loadedImageDetections = decode(output, lb, srcW, srcH);
+    renderBoundingBoxes(imageCanvas, imageCtx, loadedImageDetections, srcW, srcH);
+    updateDetectionList(loadedImageDetections);
+
+    // Record detections into analytics
+    for (const d of loadedImageDetections) {
+      evState.total += 1;
+      evState.classes[d.label] = (evState.classes[d.label] || 0) + 1;
+      evState.history.unshift({
+        label: d.label,
+        conf: Math.round(d.score * 100),
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      });
+    }
+    evState.history = evState.history.slice(0, 100);
+    renderAnalytics();
+
+    const ms = performance.now() - t0;
+    imageStats.textContent = `✓ Detected ${loadedImageDetections.length} objects in ${Math.round(ms)} ms`;
+    updateTelemetry(ms, "--", loadedImageDetections.length, activeEngineName);
+    setStatus("Image detection complete");
+  } catch (err) {
+    console.error("Image detection error:", err);
+    showAlert("Failed to process image with local YOLO model.", true);
+    setStatus("Image error", false);
+  }
+}
+
+function clearImage() {
+  imagePreview.src = "";
+  imageCtx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+  imageWrap.style.display = "none";
+  imageControls.style.display = "none";
+  imageDropzone.style.display = "block";
+  loadedImageDetections = [];
+  imageStats.textContent = "";
+  if (imageFileInput) imageFileInput.value = "";
+  updateDetectionList([]);
+  updateTelemetry(undefined, "--", 0, activeEngineName);
+}
+
+imageDropzone?.addEventListener("click", () => imageFileInput?.click());
+imageFileInput?.addEventListener("change", (e) => handleImageFile(e.target.files?.[0]));
+runImageBtn?.addEventListener("click", runImageDetection);
+clearImageBtn?.addEventListener("click", clearImage);
+
+// Drag & Drop for Image
+imageDropzone?.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  imageDropzone.classList.add("dragover");
+});
+imageDropzone?.addEventListener("dragleave", () => imageDropzone.classList.remove("dragover"));
+imageDropzone?.addEventListener("drop", (e) => {
+  e.preventDefault();
+  imageDropzone.classList.remove("dragover");
+  if (e.dataTransfer?.files?.[0]) handleImageFile(e.dataTransfer.files[0]);
+});
+
+// ---------------- MODULE 4: Local Video Detection ----------------
+function handleVideoFile(file) {
+  if (!file) return;
+  if (!file.type.startsWith("video/")) {
+    showAlert("Invalid file format. Please upload a video (.mp4, .webm, .mov).", true);
+    return;
+  }
+  if (file.size > 200 * 1024 * 1024) {
+    showAlert("Video file is large (>200MB). Video playback may use high browser memory.", false);
+  } else {
+    hideAlert();
+  }
+
+  if (videoFileUrl) URL.revokeObjectURL(videoFileUrl);
+  videoFileUrl = URL.createObjectURL(file);
+  fileVideo.src = videoFileUrl;
+
+  fileVideo.onloadedmetadata = () => {
+    videoDropzone.style.display = "none";
+    videoWrap.style.display = "flex";
+    videoControls.style.display = "flex";
+    videoCanvas.width = fileVideo.videoWidth;
+    videoCanvas.height = fileVideo.videoHeight;
+    videoWrap.style.aspectRatio = `${fileVideo.videoWidth} / ${fileVideo.videoHeight}`;
+    videoStats.textContent = `Ready: ${fileVideo.videoWidth}×${fileVideo.videoHeight}px (${Math.round(fileVideo.duration)}s)`;
+  };
+}
+
+async function inferVideoFrame() {
+  if (!session || !videoDetecting || busy || fileVideo.paused || fileVideo.ended || fileVideo.readyState < 2) {
+    if (videoDetecting && !fileVideo.paused && !fileVideo.ended) {
+      requestAnimationFrame(inferVideoFrame);
+    }
+    return;
+  }
+
+  busy = true;
+  const t0 = performance.now();
+
+  try {
+    const srcW = fileVideo.videoWidth;
+    const srcH = fileVideo.videoHeight;
+    const { input, lb } = preprocessMedia(fileVideo, srcW, srcH);
+    const tensor = new ort.Tensor("float32", input, [1, 3, PREPROCESS_SIZE, PREPROCESS_SIZE]);
+    const inputName = session.inputNames[0];
+    const outputMap = await session.run({ [inputName]: tensor });
+    const output = outputMap[session.outputNames[0]];
+
+    const detections = decode(output, lb, srcW, srcH);
+    renderBoundingBoxes(videoCanvas, videoCtx, detections, srcW, srcH);
+    updateDetectionList(detections);
+    recordDetectionFrame(detections);
+
+    const ms = performance.now() - t0;
+    fpsFrames++;
+    const now = performance.now();
+    let currentFps = fpsEl ? fpsEl.textContent : "--";
+    if (now - fpsLast >= 1000) {
+      currentFps = String(fpsFrames);
+      fpsFrames = 0;
+      fpsLast = now;
+    }
+    videoStats.textContent = `Live: ${detections.length} objects (${Math.round(ms)} ms/frame)`;
+    updateTelemetry(ms, currentFps, detections.length, activeEngineName);
+  } catch (err) {
+    console.error("Video frame inference error:", err);
+  } finally {
+    busy = false;
+    if (videoDetecting && !fileVideo.paused && !fileVideo.ended) {
+      requestAnimationFrame(inferVideoFrame);
+    }
+  }
+}
+
+async function startVideoDetection() {
+  if (!session) await loadModel();
+  if (fileVideo.paused) await fileVideo.play();
+  videoDetecting = true;
+  startVideoDetectBtn.disabled = true;
+  stopVideoDetectBtn.disabled = false;
+  setStatus("Video Edge AI Running");
+  requestAnimationFrame(inferVideoFrame);
+}
+
+function stopVideoDetection() {
+  videoDetecting = false;
+  startVideoDetectBtn.disabled = false;
+  stopVideoDetectBtn.disabled = true;
+  videoCtx.clearRect(0, 0, videoCanvas.width, videoCanvas.height);
+  setStatus("Video Detection Paused");
+}
+
+function clearVideo() {
+  stopVideoDetection();
+  if (videoFileUrl) {
+    URL.revokeObjectURL(videoFileUrl);
+    videoFileUrl = null;
+  }
+  fileVideo.src = "";
+  videoCtx.clearRect(0, 0, videoCanvas.width, videoCanvas.height);
+  videoWrap.style.display = "none";
+  videoControls.style.display = "none";
+  videoDropzone.style.display = "block";
+  videoStats.textContent = "";
+  if (videoFileInput) videoFileInput.value = "";
+  updateDetectionList([]);
+  updateTelemetry(undefined, "--", 0, activeEngineName);
+  setStatus("AI Ready");
+}
+
+videoDropzone?.addEventListener("click", () => videoFileInput?.click());
+videoFileInput?.addEventListener("change", (e) => handleVideoFile(e.target.files?.[0]));
+startVideoDetectBtn?.addEventListener("click", startVideoDetection);
+stopVideoDetectBtn?.addEventListener("click", stopVideoDetection);
+clearVideoBtn?.addEventListener("click", clearVideo);
+
+// Drag & Drop for Video
+videoDropzone?.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  videoDropzone.classList.add("dragover");
+});
+videoDropzone?.addEventListener("dragleave", () => videoDropzone.classList.remove("dragover"));
+videoDropzone?.addEventListener("drop", (e) => {
+  e.preventDefault();
+  videoDropzone.classList.remove("dragover");
+  if (e.dataTransfer?.files?.[0]) handleVideoFile(e.dataTransfer.files[0]);
+});
+
+// ---------------- Workspace Tab Switcher ----------------
+function switchWorkspaceTab(mode) {
+  activeMode = mode;
+  tabCameraBtn?.classList.toggle("active", mode === "camera");
+  tabImageBtn?.classList.toggle("active", mode === "image");
+  tabVideoBtn?.classList.toggle("active", mode === "video");
+
+  if (viewCamera) viewCamera.style.display = mode === "camera" ? "block" : "none";
+  if (viewImage) viewImage.style.display = mode === "image" ? "block" : "none";
+  if (viewVideo) viewVideo.style.display = mode === "video" ? "block" : "none";
+
+  // Stop camera if navigating away from camera
+  if (mode !== "camera" && cameraRunning) stopCamera();
+  // Pause video detection if navigating away from video
+  if (mode !== "video" && videoDetecting) stopVideoDetection();
+}
+
+tabCameraBtn?.addEventListener("click", () => switchWorkspaceTab("camera"));
+tabImageBtn?.addEventListener("click", () => switchWorkspaceTab("image"));
+tabVideoBtn?.addEventListener("click", () => switchWorkspaceTab("video"));
+
+// ---------------- MODULE 13: Universal Snapshot ----------------
+function captureSnapshot() {
+  let sourceEl, targetDetections;
+
+  if (activeMode === "camera") {
+    sourceEl = video;
+    targetDetections = currentDetections;
+  } else if (activeMode === "image") {
+    sourceEl = imagePreview;
+    targetDetections = loadedImageDetections;
+  } else {
+    sourceEl = fileVideo;
+    targetDetections = currentDetections;
+  }
+
+  const w = sourceEl.videoWidth || sourceEl.naturalWidth;
+  const h = sourceEl.videoHeight || sourceEl.naturalHeight;
+  if (!w || !h) {
+    showAlert("No active media frame available to capture.", true);
+    return;
+  }
+
   const shot = document.createElement("canvas");
-  shot.width = video.videoWidth;
-  shot.height = video.videoHeight;
+  shot.width = w;
+  shot.height = h;
   const sctx = shot.getContext("2d");
-  sctx.drawImage(video, 0, 0);
+  sctx.drawImage(sourceEl, 0, 0);
 
-  const strokeW = Math.max(2, video.videoWidth / 500);
-  const fontSize = Math.max(14, video.videoWidth / 60);
+  const strokeW = Math.max(2, w / 500);
+  const fontSize = Math.max(14, w / 60);
 
-  for (const d of currentDetections) {
-    sctx.strokeStyle = "#5eead4";
+  for (const d of targetDetections) {
+    sctx.strokeStyle = "#50e6d0";
     sctx.lineWidth = strokeW;
     sctx.strokeRect(d.x1, d.y1, d.x2 - d.x1, d.y2 - d.y1);
-    sctx.fillStyle = "rgba(5,15,28,.8)";
-    sctx.font = `${fontSize}px system-ui`;
+    sctx.fillStyle = "rgba(5, 15, 28, 0.85)";
+    sctx.font = `${fontSize}px system-ui, sans-serif`;
     const label = `${d.label} ${Math.round(d.score * 100)}%`;
     const tw = sctx.measureText(label).width + 12;
     const th = fontSize + 8;
     sctx.fillRect(d.x1, Math.max(0, d.y1 - th), tw, th);
-    sctx.fillStyle = "#5eead4";
+    sctx.fillStyle = "#50e6d0";
     sctx.fillText(label, d.x1 + 6, Math.max(fontSize, d.y1 - 6));
   }
+
+  // Academic watermark
+  sctx.fillStyle = "rgba(4, 13, 24, 0.75)";
+  sctx.fillRect(10, h - 30, 320, 24);
+  sctx.fillStyle = "#50e6d0";
+  sctx.font = "11px system-ui, sans-serif";
+  sctx.fillText("EdgeVision AI • Local Edge Inference", 18, h - 14);
+
   const a = document.createElement("a");
-  a.download = `edgevision-${Date.now()}.png`;
+  a.download = `edgevision-${activeMode}-${Date.now()}.png`;
   a.href = shot.toDataURL("image/png");
   a.click();
+
   evState.snapshots += 1;
   renderAnalytics();
-});
-
-startBtn?.addEventListener("click", async () => {
-  try {
-    await startCamera();
-  } catch (err) {
-    console.error(err);
-    alert("Camera could not start. Allow camera permission and open the site through HTTPS or localhost.");
-    setStatus("Camera permission needed", false);
-  }
-});
-
-stopBtn?.addEventListener("click", stopCamera);
-
-if (!window.isSecureContext) {
-  setStatus("Use HTTPS / localhost", false);
-  if (engineEl) engineEl.textContent = "Browser";
+  updateTelemetry(undefined, undefined, undefined, activeEngineName);
 }
 
-// ---------------- EdgeVision Analytics & Detection History ----------------
-const evState = {
-  total: 0,
-  classes: {},
-  history: [],
-  snapshots: 0,
-  lastSignature: "",
-  stableFrames: 0,
-  lastRecordedAt: {}
-};
+snapshotBtn?.addEventListener("click", captureSnapshot);
+snapshotImageBtn?.addEventListener("click", captureSnapshot);
+snapshotVideoBtn?.addEventListener("click", captureSnapshot);
 
-const totalEl = document.querySelector("#analyticsTotal");
-const classesEl = document.querySelector("#analyticsClasses");
-const snapshotsEl = document.querySelector("#analyticsSnapshots");
-const barsEl = document.querySelector("#analyticsBars");
-const historyEl = document.querySelector("#history");
-const exportBtn = document.querySelector("#exportHistory");
-const clearBtn = document.querySelector("#clearHistory");
-
+// ---------------- MODULE 5: Analytics & Detection History ----------------
 function renderAnalytics() {
   if (totalEl) totalEl.textContent = String(evState.total);
   if (classesEl) classesEl.textContent = String(Object.keys(evState.classes).length);
   if (snapshotsEl) snapshotsEl.textContent = String(evState.snapshots);
 
+  // Determine Most Detected Object
+  if (topObjectEl) {
+    const entries = Object.entries(evState.classes).sort((a, b) => b[1] - a[1]);
+    if (entries.length > 0) {
+      topObjectEl.textContent = `${entries[0][0]} (${entries[0][1]})`;
+    } else {
+      topObjectEl.textContent = "None";
+    }
+  }
+
+  // Object Frequency Chart
   if (barsEl) {
-    const items = Object.entries(evState.classes)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8);
+    const items = Object.entries(evState.classes).sort((a, b) => b[1] - a[1]).slice(0, 8);
     if (!items.length) {
       barsEl.innerHTML = '<div class="empty">Start detection to build analytics.</div>';
     } else {
@@ -637,6 +1018,7 @@ function renderAnalytics() {
     }
   }
 
+  // Detection History Stream
   if (historyEl) {
     if (!evState.history.length) {
       historyEl.innerHTML = '<div class="empty">No detection history yet.</div>';
@@ -649,6 +1031,11 @@ function renderAnalytics() {
         </div>`).join("");
     }
   }
+
+  // Update Dashboard Metrics
+  if (dashTotal) dashTotal.textContent = String(evState.total);
+  if (dashClasses) dashClasses.textContent = String(Object.keys(evState.classes).length);
+  if (dashSnapshots) dashSnapshots.textContent = String(evState.snapshots);
 }
 
 function escapeHtml(value) {
@@ -664,7 +1051,6 @@ function recordDetectionFrame(detections) {
     return;
   }
 
-  // Analytics use a stricter threshold and temporal confirmation
   const analyticsDetections = detections.filter(d => d.score >= 0.55);
   if (!analyticsDetections.length) {
     evState.stableFrames = 0;
@@ -683,11 +1069,12 @@ function recordDetectionFrame(detections) {
     evState.stableFrames = 1;
   }
 
-  // Require same scene to be observed in 3 processed frames
+  // Require same scene to be confirmed across 3 consecutive processed frames
   if (evState.stableFrames < 3) return;
 
   const now = Date.now();
   for (const d of analyticsDetections) {
+    // 2-second cooldown per class to log discrete detection events instead of raw frame count
     if (now - (evState.lastRecordedAt[d.label] || 0) < 2000) continue;
 
     evState.lastRecordedAt[d.label] = now;
@@ -696,9 +1083,7 @@ function recordDetectionFrame(detections) {
     evState.history.unshift({
       label: d.label,
       conf: Math.round(d.score * 100),
-      time: new Date().toLocaleTimeString([], {
-        hour: "2-digit", minute: "2-digit", second: "2-digit"
-      })
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
     });
   }
 
@@ -706,7 +1091,7 @@ function recordDetectionFrame(detections) {
   renderAnalytics();
 }
 
-clearBtn?.addEventListener("click", () => {
+function clearAnalyticsHistory() {
   evState.total = 0;
   evState.classes = {};
   evState.history = [];
@@ -715,7 +1100,10 @@ clearBtn?.addEventListener("click", () => {
   evState.stableFrames = 0;
   evState.lastRecordedAt = {};
   renderAnalytics();
-});
+}
+
+clearBtn?.addEventListener("click", clearAnalyticsHistory);
+settingsClearHistoryBtn?.addEventListener("click", clearAnalyticsHistory);
 
 exportBtn?.addEventListener("click", () => {
   if (!evState.history.length) {
@@ -736,7 +1124,7 @@ exportBtn?.addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
-// ---------------- Settings & Custom Model Support (Phase 3) ----------------
+// ---------------- MODULE 6: Settings Persistence & Reset ----------------
 function loadSavedSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem("edgevision-settings") || "{}");
@@ -760,13 +1148,25 @@ saveSettingsBtn?.addEventListener("click", async () => {
     settingsSaved.textContent = "✓ Settings saved on this device";
     setTimeout(() => { settingsSaved.textContent = ""; }, 2500);
   }
-  if (!running && activeModelUrl) {
+  if (!cameraRunning && !videoDetecting && activeModelUrl) {
     session = null;
     try { await loadModel(); } catch {}
   }
 });
 
-// Update Choose Model file button text upon selection
+resetSettingsBtn?.addEventListener("click", () => {
+  localStorage.removeItem("edgevision-settings");
+  syncConfidence(0.55);
+  if (engineSelect) engineSelect.value = "auto";
+  if (cameraSelect) cameraSelect.value = "environment";
+  if (gpuToggle) gpuToggle.checked = true;
+  if (settingsSaved) {
+    settingsSaved.textContent = "✓ Settings reset to default";
+    setTimeout(() => { settingsSaved.textContent = ""; }, 2500);
+  }
+});
+
+// ---------------- MODULE 12: Custom ONNX Model Loader ----------------
 customModelInput?.addEventListener("change", (e) => {
   const file = e.target.files?.[0];
   if (file && chooseModelLabel) {
@@ -779,7 +1179,6 @@ customModelInput?.addEventListener("change", (e) => {
   }
 });
 
-// Custom ONNX Model Validation & Loading
 async function loadCustomModel() {
   const file = customModelInput?.files?.[0];
   if (!file) {
@@ -790,7 +1189,6 @@ async function loadCustomModel() {
     return alert("Choose a .onnx model file first.");
   }
 
-  // File type and size validation
   const lowerName = file.name.toLowerCase();
   if (!lowerName.endsWith(".onnx") && !lowerName.endsWith(".bin")) {
     const msg = "Invalid file type: Please select a valid .onnx model file.";
@@ -810,7 +1208,6 @@ async function loadCustomModel() {
     return alert(msg);
   }
 
-  // Parse custom class names
   const parsedNames = parseClassNames(customClassesInput.value);
   if (!parsedNames.length) {
     const msg = "Custom class names required: Enter one class name per line (or '0: name') matching your training labels.";
@@ -831,12 +1228,10 @@ async function loadCustomModel() {
     const buffer = await file.arrayBuffer();
     const requestedEngine = engineSelect?.value || (gpuToggle?.checked ? "auto" : "wasm");
 
-    // Create session with WebGPU/WASM fallback
     const result = await createSessionWithFallback(new Uint8Array(buffer), requestedEngine);
     const newSession = result.session;
     const provider = result.provider;
 
-    // Perform dry-run validation to inspect runtime tensor shapes
     const dummyTensor = new ort.Tensor("float32", inputTensorBuffer, [1, 3, PREPROCESS_SIZE, PREPROCESS_SIZE]);
     const inputName = newSession.inputNames[0];
     const outputMap = await newSession.run({ [inputName]: dummyTensor });
@@ -849,17 +1244,14 @@ async function loadCustomModel() {
 
     const info = inspectYoloTensor(output.dims);
     if (!info) {
-      throw new Error(`Incompatible output tensor shape: [${output.dims.join(", ")}]. EdgeVision requires a YOLO detection output tensor formatted as [1, 4+C, N] or [1, N, 4+C].`);
+      throw new Error(`Incompatible output tensor shape: [${output.dims.join(", ")}]. EdgeVision requires a YOLO detection output formatted as [1, 4+C, N] or [1, N, 4+C].`);
     }
 
-    // Class count reconciliation
     let finalNames = [...parsedNames];
     let noteText = "";
     if (parsedNames.length !== info.classCount) {
       if (parsedNames.length < info.classCount) {
-        for (let i = parsedNames.length; i < info.classCount; i++) {
-          finalNames.push(`class_${i}`);
-        }
+        for (let i = parsedNames.length; i < info.classCount; i++) finalNames.push(`class_${i}`);
         noteText = ` ⚠️ Note: Model has ${info.classCount} classes, but ${parsedNames.length} names were entered. Missing classes padded as class_*.`;
       } else {
         finalNames = parsedNames.slice(0, info.classCount);
@@ -867,7 +1259,6 @@ async function loadCustomModel() {
       }
     }
 
-    // Success: activate custom model
     session = newSession;
     activeModelUrl = null;
     activeClassNames = finalNames;
@@ -903,7 +1294,6 @@ async function loadCustomModel() {
   }
 }
 
-// Reset to default pretrained YOLO11n model
 async function resetToDefaultModel() {
   if (activeModelUrl === DEFAULT_MODEL_URL && !activeClassNames) {
     if (customModelStatus) {
@@ -956,17 +1346,30 @@ async function resetToDefaultModel() {
 loadCustomModelBtn?.addEventListener("click", loadCustomModel);
 resetModelBtn?.addEventListener("click", resetToDefaultModel);
 defaultModelCard?.addEventListener("click", () => {
-  if (activeModelUrl !== DEFAULT_MODEL_URL) {
-    resetToDefaultModel();
-  }
+  if (activeModelUrl !== DEFAULT_MODEL_URL) resetToDefaultModel();
 });
 
 gpuToggle?.addEventListener("change", async () => {
-  if (running) return;
+  if (cameraRunning || videoDetecting) return;
   session = null;
   try { await loadModel(); } catch {}
 });
 
+// ---------------- Initialize Application ----------------
+if (!window.isSecureContext) {
+  setStatus("Use HTTPS / localhost", false);
+  if (engineEl) engineEl.textContent = "Browser";
+}
+
+populateCameraDevices();
 loadSavedSettings();
 renderAnalytics();
 renderModelInfo();
+updateTelemetry(undefined, "--", 0, "WebGPU / CPU");
+
+// Expose state and controls for test automation and presentation
+window.edgeVisionLoaded = true;
+window.evState = evState;
+window.switchWorkspaceTab = switchWorkspaceTab;
+window.renderAnalytics = renderAnalytics;
+window.syncConfidence = syncConfidence;
