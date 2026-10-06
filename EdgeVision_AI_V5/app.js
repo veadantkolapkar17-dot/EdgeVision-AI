@@ -2,9 +2,13 @@ import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/o
 
 const DEFAULT_MODEL_URL =
   "https://huggingface.co/webnn/yolo11n/resolve/main/onnx/yolo11n.onnx?download=true";
+
 let activeModelUrl = DEFAULT_MODEL_URL;
 let activeClassNames = null;
 let activeModelName = "YOLO11n";
+let activeOutputDims = [1, 84, 8400];
+let activeLayoutInfo = { layout: "A", classCount: 80, anchors: 8400, channels: 84, dims: [1, 84, 8400] };
+let activeEngineName = "WebGPU";
 
 const COCO = [
   "person","bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light",
@@ -18,7 +22,7 @@ const COCO = [
   "hair drier","toothbrush"
 ];
 
-// DOM references
+// DOM references - Live Detection & Camera
 const video = document.querySelector("#video");
 const canvas = document.querySelector("#overlay");
 const ctx = canvas.getContext("2d");
@@ -30,17 +34,14 @@ const snapshotBtn = document.querySelector("#snapshotBtn");
 const confSlider = document.querySelector("#confidence");
 const confValue = document.querySelector("#confidenceValue");
 const gpuToggle = document.querySelector("#gpuToggle");
+
+// DOM references - Settings & Navigation
 const settingsConfidence = document.querySelector("#settingsConfidence");
 const settingsConfidenceValue = document.querySelector("#settingsConfidenceValue");
 const engineSelect = document.querySelector("#engineSelect");
 const cameraSelect = document.querySelector("#cameraSelect");
 const saveSettingsBtn = document.querySelector("#saveSettings");
 const settingsSaved = document.querySelector("#settingsSaved");
-const customModelInput = document.querySelector("#customModelInput");
-const customClassesInput = document.querySelector("#customClasses");
-const loadCustomModelBtn = document.querySelector("#loadCustomModel");
-const customModelStatus = document.querySelector("#customModelStatus");
-const modelState = document.querySelector("#modelState");
 const statusEl = document.querySelector("#engineStatus");
 const navStatusEl = document.querySelector("#navStatus");
 const latencyEl = document.querySelector("#latency");
@@ -49,7 +50,29 @@ const objectCountEl = document.querySelector("#objectCount");
 const engineEl = document.querySelector("#engine");
 const detectionsEl = document.querySelector("#detections");
 
-// State
+// DOM references - AI Model & Custom Loader (Phase 3)
+const customModelInput = document.querySelector("#customModelInput");
+const chooseModelLabel = document.querySelector("#chooseModelLabel");
+const customClassesInput = document.querySelector("#customClasses");
+const loadCustomModelBtn = document.querySelector("#loadCustomModel");
+const resetModelBtn = document.querySelector("#resetModelBtn");
+const customModelStatus = document.querySelector("#customModelStatus");
+const modelState = document.querySelector("#modelState");
+const defaultModelCard = document.querySelector("#defaultModelCard");
+const customModelCard = document.querySelector("#customModelCard");
+const defaultModelBadge = document.querySelector("#defaultModelBadge");
+
+// DOM references - Model Information Panel (Phase 3)
+const infoModelName = document.querySelector("#infoModelName");
+const infoEngine = document.querySelector("#infoEngine");
+const infoInputShape = document.querySelector("#infoInputShape");
+const infoOutputShape = document.querySelector("#infoOutputShape");
+const infoLayout = document.querySelector("#infoLayout");
+const infoClassesCount = document.querySelector("#infoClassesCount");
+const infoClassesList = document.querySelector("#infoClassesList");
+const infoStatusPill = document.querySelector("#infoStatusPill");
+
+// Inference state
 let session = null;
 let stream = null;
 let running = false;
@@ -58,7 +81,7 @@ let fpsFrames = 0;
 let fpsLast = performance.now();
 let currentDetections = [];
 
-// Preprocessing persistent buffers (Performance Optimization: 0 allocations/frame)
+// Preprocessing persistent buffers (Zero memory churn per frame)
 const PREPROCESS_SIZE = 640;
 const preprocessCanvas = typeof OffscreenCanvas !== "undefined"
   ? new OffscreenCanvas(PREPROCESS_SIZE, PREPROCESS_SIZE)
@@ -122,6 +145,82 @@ async function createSessionWithFallback(modelSource, preferredEngine) {
   return { session: sess, provider: "wasm" };
 }
 
+// ---------------- Universal YOLO Output Tensor Adapter ----------------
+function inspectYoloTensor(dims) {
+  if (!dims || dims.length < 2) return null;
+  const d0 = dims[dims.length - 2];
+  const d1 = dims[dims.length - 1];
+
+  // Layout A: [..., 4 + C, N] (e.g. [1, 84, 8400] for 80 classes, [1, 9, 8400] for 5 classes)
+  // Layout B: [..., N, 4 + C] (e.g. [1, 8400, 84] for 80 classes, [1, 8400, 9] for 5 classes)
+  if (d0 < d1 && d0 > 4) {
+    const classCount = d0 - 4;
+    const anchors = d1;
+    return { layout: "A", classCount, anchors, channels: d0, dims };
+  } else if (d1 < d0 && d1 > 4) {
+    const classCount = d1 - 4;
+    const anchors = d0;
+    return { layout: "B", classCount, anchors, channels: d1, dims };
+  }
+  return null;
+}
+
+// Helper to parse custom class names formatted as lines, indexed ("0: person", "0 = person"), or lists
+function parseClassNames(text) {
+  if (!text) return [];
+  const trimmed = text.trim();
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    try {
+      const arr = JSON.parse(trimmed);
+      if (Array.isArray(arr) && arr.length > 0) {
+        return arr.map(x => String(x).trim()).filter(Boolean);
+      }
+    } catch {}
+  }
+
+  const lines = trimmed.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const result = [];
+  for (const line of lines) {
+    if (line.includes(",") && !/^\d+\s*[:=]/.test(line)) {
+      const parts = line.split(",").map(p => p.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean);
+      result.push(...parts);
+    } else {
+      // Strip index prefixes like "0 = person", "0: person", "0 - person", "#0 person"
+      const cleaned = line.replace(/^(\d+\s*[:=\-.]\s*|#\d+\s*)/, "").trim().replace(/^['"]|['"]$/g, "");
+      if (cleaned) result.push(cleaned);
+    }
+  }
+  return result;
+}
+
+// Render Model Information Panel
+function renderModelInfo() {
+  const isCustom = Boolean(activeClassNames && activeClassNames.length > 0 && activeModelUrl !== DEFAULT_MODEL_URL);
+  const names = isCustom ? activeClassNames : COCO;
+  const layoutDesc = activeLayoutInfo
+    ? (activeLayoutInfo.layout === "A" ? "Layout A [1, 4+C, N]" : "Layout B [1, N, 4+C]")
+    : "Layout A [1, 4+C, N]";
+
+  if (infoModelName) infoModelName.textContent = activeModelName;
+  if (infoEngine) infoEngine.textContent = activeEngineName;
+  if (infoInputShape) infoInputShape.textContent = "1 × 3 × 640 × 640";
+  if (infoOutputShape) {
+    infoOutputShape.textContent = activeOutputDims ? `[${activeOutputDims.join(", ")}]` : `[1, ${4 + names.length}, 8400]`;
+  }
+  if (infoLayout) infoLayout.textContent = layoutDesc;
+  if (infoClassesCount) infoClassesCount.textContent = `${names.length} classes`;
+  if (infoStatusPill) {
+    infoStatusPill.textContent = isCustom ? "Custom Active" : "Pretrained Active";
+    infoStatusPill.style.color = "var(--accent)";
+  }
+
+  if (infoClassesList) {
+    infoClassesList.innerHTML = names.slice(0, 40).map((name, i) => `
+      <span class="class-tag" title="Index ${i}: ${escapeHtml(name)}">${i}: ${escapeHtml(name)}</span>
+    `).join("") + (names.length > 40 ? `<span class="class-tag" style="opacity:0.7">+${names.length - 40} more</span>` : "");
+  }
+}
+
 async function loadModel() {
   if (!activeModelUrl) {
     activeModelUrl = DEFAULT_MODEL_URL;
@@ -138,8 +237,25 @@ async function loadModel() {
     const result = await createSessionWithFallback(activeModelUrl, requestedEngine);
     session = result.session;
     const isGpu = result.provider === "webgpu";
-    if (engineEl) engineEl.textContent = isGpu ? "WebGPU" : "WASM CPU";
+    activeEngineName = isGpu ? "WebGPU" : "WASM CPU";
+    if (engineEl) engineEl.textContent = activeEngineName;
     setStatus(isGpu ? "WebGPU Edge AI Ready" : "CPU Edge AI Ready");
+
+    // Perform dry-run inspection on initialization to determine real tensor dimensions
+    try {
+      const dummyTensor = new ort.Tensor("float32", inputTensorBuffer, [1, 3, PREPROCESS_SIZE, PREPROCESS_SIZE]);
+      const inputName = session.inputNames[0];
+      const outputMap = await session.run({ [inputName]: dummyTensor });
+      const output = outputMap[session.outputNames[0]];
+      if (output && output.dims) {
+        activeOutputDims = output.dims;
+        activeLayoutInfo = inspectYoloTensor(output.dims) || activeLayoutInfo;
+      }
+    } catch (dryErr) {
+      console.warn("Dry run tensor inspection:", dryErr);
+    }
+
+    renderModelInfo();
   } catch (err) {
     console.error("Failed to load model:", err);
     setStatus("Model load failed", false);
@@ -200,41 +316,91 @@ function nms(boxes, threshold = 0.45) {
   return keep;
 }
 
+// Universal YOLO decoder supporting Layout A [1, 4+C, N] and Layout B [1, N, 4+C]
 function decode(output, lb, sourceW, sourceH) {
-  // Standard YOLO detection output: [1, 4 + classCount, anchors].
   const data = output.data;
   const dims = output.dims || [1, 84, 8400];
-  const channels = dims[dims.length - 2];
-  const anchors = dims[dims.length - 1];
-  const classCount = channels - 4;
-  const names = activeClassNames && activeClassNames.length === classCount ? activeClassNames : COCO;
+  const info = inspectYoloTensor(dims);
+
+  const layout = info ? info.layout : "A";
+  const classCount = info ? info.classCount : (dims[dims.length - 2] - 4);
+  const anchors = info ? info.anchors : dims[dims.length - 1];
+
+  const names = (activeClassNames && activeClassNames.length > 0)
+    ? activeClassNames
+    : (classCount === 80 ? COCO : []);
+
   const candidates = [];
   const threshold = Number(confSlider.value);
 
-  for (let a = 0; a < anchors; a++) {
-    let bestClass = -1, bestScore = 0;
-    for (let c = 0; c < classCount; c++) {
-      const score = data[(4 + c) * anchors + a];
-      if (score > bestScore) {
-        bestScore = score;
-        bestClass = c;
+  if (layout === "A") {
+    // Layout A: [1, 4 + classCount, anchors]
+    for (let a = 0; a < anchors; a++) {
+      let bestClass = -1;
+      let bestScore = 0;
+      for (let c = 0; c < classCount; c++) {
+        const score = data[(4 + c) * anchors + a];
+        if (score > bestScore) {
+          bestScore = score;
+          bestClass = c;
+        }
       }
+      if (bestScore < threshold) continue;
+
+      const cx = data[a];
+      const cy = data[anchors + a];
+      const w = data[2 * anchors + a];
+      const h = data[3 * anchors + a];
+
+      let x1 = (cx - w / 2 - lb.dx) / lb.scale;
+      let y1 = (cy - h / 2 - lb.dy) / lb.scale;
+      let x2 = (cx + w / 2 - lb.dx) / lb.scale;
+      let y2 = (cy + h / 2 - lb.dy) / lb.scale;
+
+      x1 = Math.max(0, Math.min(sourceW, x1));
+      y1 = Math.max(0, Math.min(sourceH, y1));
+      x2 = Math.max(0, Math.min(sourceW, x2));
+      y2 = Math.max(0, Math.min(sourceH, y2));
+
+      const label = names[bestClass] || `class_${bestClass}`;
+      candidates.push({ x1, y1, x2, y2, score: bestScore, label });
     }
-    if (bestScore < threshold) continue;
+  } else {
+    // Layout B: [1, anchors, 4 + classCount]
+    const stride = 4 + classCount;
+    for (let a = 0; a < anchors; a++) {
+      const offset = a * stride;
+      let bestClass = -1;
+      let bestScore = 0;
+      for (let c = 0; c < classCount; c++) {
+        const score = data[offset + 4 + c];
+        if (score > bestScore) {
+          bestScore = score;
+          bestClass = c;
+        }
+      }
+      if (bestScore < threshold) continue;
 
-    const cx = data[a], cy = data[anchors + a], w = data[2 * anchors + a], h = data[3 * anchors + a];
-    let x1 = (cx - w / 2 - lb.dx) / lb.scale;
-    let y1 = (cy - h / 2 - lb.dy) / lb.scale;
-    let x2 = (cx + w / 2 - lb.dx) / lb.scale;
-    let y2 = (cy + h / 2 - lb.dy) / lb.scale;
+      const cx = data[offset];
+      const cy = data[offset + 1];
+      const w = data[offset + 2];
+      const h = data[offset + 3];
 
-    x1 = Math.max(0, Math.min(sourceW, x1));
-    y1 = Math.max(0, Math.min(sourceH, y1));
-    x2 = Math.max(0, Math.min(sourceW, x2));
-    y2 = Math.max(0, Math.min(sourceH, y2));
+      let x1 = (cx - w / 2 - lb.dx) / lb.scale;
+      let y1 = (cy - h / 2 - lb.dy) / lb.scale;
+      let x2 = (cx + w / 2 - lb.dx) / lb.scale;
+      let y2 = (cy + h / 2 - lb.dy) / lb.scale;
 
-    candidates.push({ x1, y1, x2, y2, score: bestScore, label: names[bestClass] ?? `class_${bestClass}` });
+      x1 = Math.max(0, Math.min(sourceW, x1));
+      y1 = Math.max(0, Math.min(sourceH, y1));
+      x2 = Math.max(0, Math.min(sourceW, x2));
+      y2 = Math.max(0, Math.min(sourceH, y2));
+
+      const label = names[bestClass] || `class_${bestClass}`;
+      candidates.push({ x1, y1, x2, y2, score: bestScore, label });
+    }
   }
+
   candidates.sort((a, b) => b.score - a.score);
   return nms(candidates.slice(0, 300), 0.45).slice(0, 50);
 }
@@ -283,7 +449,7 @@ function updateDetectionList(detections) {
     }).join("");
 }
 
-// Clean, modular inference pipeline (eliminates monkey-patching)
+// Clean, modular inference pipeline
 async function inferFrame() {
   if (!session || !running || busy || video.readyState < 2) return;
   const srcW = video.videoWidth;
@@ -305,7 +471,7 @@ async function inferFrame() {
     updateDetectionList(currentDetections);
     if (objectCountEl) objectCountEl.textContent = String(currentDetections.length);
 
-    // Feed detections directly to analytics without monkey patching
+    // Feed detections directly to analytics using the active model's class names
     if (running) {
       recordDetectionFrame(currentDetections);
     }
@@ -348,7 +514,6 @@ async function startCamera() {
   video.srcObject = stream;
   await video.play();
 
-  // Adapt camera aspect ratio dynamically to camera dimensions (eliminates crop/misalignment)
   updateCameraAspect();
   video.addEventListener("loadedmetadata", updateCameraAspect, { once: true });
 
@@ -367,7 +532,6 @@ function stopCamera() {
   stream = null;
   video.srcObject = null;
 
-  // Restore container aspect ratio to default 16:9 for placeholder
   if (cameraWrap) {
     cameraWrap.style.aspectRatio = "16 / 9";
   }
@@ -500,8 +664,7 @@ function recordDetectionFrame(detections) {
     return;
   }
 
-  // Analytics use a stricter threshold and temporal confirmation so brief
-  // low-confidence false positives do not flood the history.
+  // Analytics use a stricter threshold and temporal confirmation
   const analyticsDetections = detections.filter(d => d.score >= 0.55);
   if (!analyticsDetections.length) {
     evState.stableFrames = 0;
@@ -520,12 +683,11 @@ function recordDetectionFrame(detections) {
     evState.stableFrames = 1;
   }
 
-  // Require the same scene to be observed in 3 processed frames.
+  // Require same scene to be observed in 3 processed frames
   if (evState.stableFrames < 3) return;
 
   const now = Date.now();
   for (const d of analyticsDetections) {
-    // Record a class at most once every 2 seconds to represent detection events
     if (now - (evState.lastRecordedAt[d.label] || 0) < 2000) continue;
 
     evState.lastRecordedAt[d.label] = now;
@@ -574,7 +736,7 @@ exportBtn?.addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
-// ---------------- Settings & Custom Model Support ----------------
+// ---------------- Settings & Custom Model Support (Phase 3) ----------------
 function loadSavedSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem("edgevision-settings") || "{}");
@@ -598,41 +760,206 @@ saveSettingsBtn?.addEventListener("click", async () => {
     settingsSaved.textContent = "✓ Settings saved on this device";
     setTimeout(() => { settingsSaved.textContent = ""; }, 2500);
   }
-  if (!running) {
+  if (!running && activeModelUrl) {
     session = null;
     try { await loadModel(); } catch {}
   }
 });
 
+// Update Choose Model file button text upon selection
+customModelInput?.addEventListener("change", (e) => {
+  const file = e.target.files?.[0];
+  if (file && chooseModelLabel) {
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+    chooseModelLabel.textContent = `${file.name} (${sizeMb} MB)`;
+    if (customModelStatus) {
+      customModelStatus.textContent = `Selected "${file.name}" (${sizeMb} MB). Ready to validate & load.`;
+      customModelStatus.style.color = "var(--text)";
+    }
+  }
+});
+
+// Custom ONNX Model Validation & Loading
 async function loadCustomModel() {
   const file = customModelInput?.files?.[0];
-  if (!file) return alert("Choose a .onnx model file first.");
-  if (running) return alert("Stop the camera before loading a different model.");
-  const names = customClassesInput.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
-  if (!names.length) return alert("Enter the custom model class names, one class per line, in training order.");
+  if (!file) {
+    if (customModelStatus) {
+      customModelStatus.textContent = "⚠️ Please choose a .onnx model file first.";
+      customModelStatus.style.color = "var(--danger)";
+    }
+    return alert("Choose a .onnx model file first.");
+  }
+
+  // File type and size validation
+  const lowerName = file.name.toLowerCase();
+  if (!lowerName.endsWith(".onnx") && !lowerName.endsWith(".bin")) {
+    const msg = "Invalid file type: Please select a valid .onnx model file.";
+    if (customModelStatus) {
+      customModelStatus.textContent = `❌ ${msg}`;
+      customModelStatus.style.color = "var(--danger)";
+    }
+    return alert(msg);
+  }
+
+  if (file.size < 1024) {
+    const msg = "Invalid file: The file is too small (< 1 KB) to be a valid ONNX model.";
+    if (customModelStatus) {
+      customModelStatus.textContent = `❌ ${msg}`;
+      customModelStatus.style.color = "var(--danger)";
+    }
+    return alert(msg);
+  }
+
+  // Parse custom class names
+  const parsedNames = parseClassNames(customClassesInput.value);
+  if (!parsedNames.length) {
+    const msg = "Custom class names required: Enter one class name per line (or '0: name') matching your training labels.";
+    if (customModelStatus) {
+      customModelStatus.textContent = `⚠️ ${msg}`;
+      customModelStatus.style.color = "var(--danger)";
+    }
+    return alert(msg);
+  }
+
+  setStatus("Validating custom model…");
+  if (customModelStatus) {
+    customModelStatus.textContent = "⏳ Reading file and initializing ONNX Runtime…";
+    customModelStatus.style.color = "var(--accent)";
+  }
 
   try {
     const buffer = await file.arrayBuffer();
     const requestedEngine = engineSelect?.value || (gpuToggle?.checked ? "auto" : "wasm");
-    setStatus("Loading custom model…");
 
+    // Create session with WebGPU/WASM fallback
     const result = await createSessionWithFallback(new Uint8Array(buffer), requestedEngine);
-    session = result.session;
+    const newSession = result.session;
+    const provider = result.provider;
+
+    // Perform dry-run validation to inspect runtime tensor shapes
+    const dummyTensor = new ort.Tensor("float32", inputTensorBuffer, [1, 3, PREPROCESS_SIZE, PREPROCESS_SIZE]);
+    const inputName = newSession.inputNames[0];
+    const outputMap = await newSession.run({ [inputName]: dummyTensor });
+    const outputName = newSession.outputNames[0];
+    const output = outputMap[outputName];
+
+    if (!output || !output.dims) {
+      throw new Error("Model ran successfully but produced no output tensor with dimensions.");
+    }
+
+    const info = inspectYoloTensor(output.dims);
+    if (!info) {
+      throw new Error(`Incompatible output tensor shape: [${output.dims.join(", ")}]. EdgeVision requires a YOLO detection output tensor formatted as [1, 4+C, N] or [1, N, 4+C].`);
+    }
+
+    // Class count reconciliation
+    let finalNames = [...parsedNames];
+    let noteText = "";
+    if (parsedNames.length !== info.classCount) {
+      if (parsedNames.length < info.classCount) {
+        for (let i = parsedNames.length; i < info.classCount; i++) {
+          finalNames.push(`class_${i}`);
+        }
+        noteText = ` ⚠️ Note: Model has ${info.classCount} classes, but ${parsedNames.length} names were entered. Missing classes padded as class_*.`;
+      } else {
+        finalNames = parsedNames.slice(0, info.classCount);
+        noteText = ` ⚠️ Note: Model has ${info.classCount} classes, but ${parsedNames.length} names were entered. Using first ${info.classCount} classes.`;
+      }
+    }
+
+    // Success: activate custom model
+    session = newSession;
     activeModelUrl = null;
-    activeClassNames = names;
+    activeClassNames = finalNames;
     activeModelName = file.name;
+    activeOutputDims = output.dims;
+    activeLayoutInfo = info;
+    activeEngineName = provider === "webgpu" ? "WebGPU" : "WASM CPU";
+
+    if (defaultModelCard) defaultModelCard.classList.remove("active-model");
+    if (customModelCard) customModelCard.classList.add("active-model");
+    if (defaultModelBadge) defaultModelBadge.textContent = "INACTIVE";
+    const customBadge = customModelCard?.querySelector(".model-badge");
+    if (customBadge) customBadge.textContent = "ACTIVE";
+
     if (modelState) modelState.textContent = "CUSTOM MODEL ACTIVE";
-    if (customModelStatus) customModelStatus.textContent = `✓ Loaded ${file.name} with ${names.length} classes. Local inference is ready.`;
-    if (engineEl) engineEl.textContent = result.provider === "webgpu" ? "WebGPU" : "WASM CPU";
+    if (engineEl) engineEl.textContent = activeEngineName;
+
+    if (customModelStatus) {
+      customModelStatus.textContent = `✓ Successfully loaded "${file.name}"! Output: [${output.dims.join(", ")}] (${info.layout === 'A' ? 'Layout A [1, 4+C, N]' : 'Layout B [1, N, 4+C]'}), ${info.classCount} classes.${noteText}`;
+      customModelStatus.style.color = "var(--accent)";
+    }
+
+    renderModelInfo();
     setStatus("Custom Edge AI Ready");
   } catch (err) {
-    console.error("Custom model load failed:", err);
-    if (customModelStatus) customModelStatus.textContent = "Could not load this ONNX model. Make sure it is a compatible YOLO detection export.";
+    console.error("Custom model validation failed:", err);
+    if (customModelStatus) {
+      customModelStatus.textContent = `❌ Validation Failed: ${err.message || err}`;
+      customModelStatus.style.color = "var(--danger)";
+    }
     setStatus("Custom model failed", false);
+    alert(`Could not load custom model:\n\n${err.message || err}`);
+  }
+}
+
+// Reset to default pretrained YOLO11n model
+async function resetToDefaultModel() {
+  if (activeModelUrl === DEFAULT_MODEL_URL && !activeClassNames) {
+    if (customModelStatus) {
+      customModelStatus.textContent = "Default YOLO11n model is already active.";
+      customModelStatus.style.color = "var(--muted)";
+    }
+    return;
+  }
+
+  setStatus("Resetting to YOLO11n…");
+  if (customModelStatus) {
+    customModelStatus.textContent = "⏳ Loading default pretrained YOLO11n model…";
+    customModelStatus.style.color = "var(--accent)";
+  }
+
+  try {
+    activeModelUrl = DEFAULT_MODEL_URL;
+    activeClassNames = null;
+    activeModelName = "YOLO11n";
+    activeOutputDims = [1, 84, 8400];
+    activeLayoutInfo = { layout: "A", classCount: 80, anchors: 8400, channels: 84, dims: [1, 84, 8400] };
+
+    await loadModel();
+
+    if (customModelInput) customModelInput.value = "";
+    if (chooseModelLabel) chooseModelLabel.textContent = "Choose .onnx";
+
+    if (defaultModelCard) defaultModelCard.classList.add("active-model");
+    if (customModelCard) customModelCard.classList.remove("active-model");
+    if (defaultModelBadge) defaultModelBadge.textContent = "ACTIVE";
+    const customBadge = customModelCard?.querySelector(".model-badge");
+    if (customBadge) customBadge.textContent = "INACTIVE";
+
+    if (modelState) modelState.textContent = "YOLO11n ACTIVE";
+    if (customModelStatus) {
+      customModelStatus.textContent = "✓ Reset to default pretrained YOLO11n model. COCO 80 classes active.";
+      customModelStatus.style.color = "var(--accent)";
+    }
+
+    renderModelInfo();
+  } catch (err) {
+    console.error("Failed to reset model:", err);
+    if (customModelStatus) {
+      customModelStatus.textContent = `❌ Failed to load default model: ${err.message || err}`;
+      customModelStatus.style.color = "var(--danger)";
+    }
   }
 }
 
 loadCustomModelBtn?.addEventListener("click", loadCustomModel);
+resetModelBtn?.addEventListener("click", resetToDefaultModel);
+defaultModelCard?.addEventListener("click", () => {
+  if (activeModelUrl !== DEFAULT_MODEL_URL) {
+    resetToDefaultModel();
+  }
+});
 
 gpuToggle?.addEventListener("change", async () => {
   if (running) return;
@@ -642,3 +969,4 @@ gpuToggle?.addEventListener("change", async () => {
 
 loadSavedSettings();
 renderAnalytics();
+renderModelInfo();

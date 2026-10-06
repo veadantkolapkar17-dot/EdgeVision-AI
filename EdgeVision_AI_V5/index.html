@@ -24,13 +24,34 @@
 <label class="setting-row"><span>Camera</span><select id="cameraSelect"><option value="environment">Back / Environment</option><option value="user">Front / User</option></select></label>
 <button id="saveSettings" class="btn primary">Save Settings</button><span id="settingsSaved" class="saved-msg"></span></div>
 <div class="panel settings-panel"><div class="panel-title"><h3>AI Model</h3><span id="modelState">YOLO11n ACTIVE</span></div>
-<div class="model-card active-model"><div class="model-icon">⚡</div><div><b>YOLO11n</b><small>Current lightweight Edge AI model</small></div><span class="model-badge">ACTIVE</span></div>
-<div class="model-card"><div class="model-icon">🧠</div><div><b>Custom YOLO ONNX</b><small>Load your trained model later without rebuilding the app</small></div><label class="upload-btn">Choose .onnx<input id="customModelInput" type="file" accept=".onnx,application/octet-stream"></label></div>
-<label class="class-label">Custom model class names <small>One class per line, in the same order as training.</small><textarea id="customClasses" rows="6" placeholder="person
+<div class="model-card active-model" id="defaultModelCard"><div class="model-icon">⚡</div><div><b>YOLO11n</b><small>Default lightweight Edge AI model (COCO 80 classes)</small></div><span class="model-badge" id="defaultModelBadge">ACTIVE</span></div>
+<div class="model-card" id="customModelCard"><div class="model-icon">🧠</div><div><b>Custom YOLO ONNX</b><small>Compatible with YOLOv8, YOLOv9, YOLOv10, YOLO11 exports</small></div><label class="upload-btn"><span id="chooseModelLabel">Choose .onnx</span><input id="customModelInput" type="file" accept=".onnx,application/octet-stream"></label></div>
+<label class="class-label">Custom model class names <small>One class per line (e.g. "person" or "0: person"), in exact training order.</small><textarea id="customClasses" rows="5" placeholder="person
 mobile
 bottle
-laptop"></textarea></label>
-<button id="loadCustomModel" class="btn">Load Custom Model</button><div id="customModelStatus" class="model-note">No custom model loaded. Your current YOLO11n model remains active.</div></div>
+laptop
+book"></textarea></label>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+<button id="loadCustomModel" class="btn primary">Load Custom Model</button>
+<button id="resetModelBtn" class="btn">Reset to Pretrained YOLO11n</button>
+</div>
+<div id="customModelStatus" class="model-note">Pretrained YOLO11n model active. Ready to load custom model.</div>
+<div class="model-info-box" id="modelInfoBox">
+<div class="model-info-head"><span>ACTIVE MODEL SPECIFICATIONS</span><span class="info-status-pill" id="infoStatusPill">Active</span></div>
+<div class="info-grid">
+<div class="info-item"><span class="info-lbl">Active Model</span><b id="infoModelName">YOLO11n</b></div>
+<div class="info-item"><span class="info-lbl">Engine</span><b id="infoEngine">WebGPU</b></div>
+<div class="info-item"><span class="info-lbl">Input Shape</span><b id="infoInputShape">1 × 3 × 640 × 640</b></div>
+<div class="info-item"><span class="info-lbl">Output Shape</span><b id="infoOutputShape">[1, 84, 8400]</b></div>
+<div class="info-item"><span class="info-lbl">Tensor Layout</span><b id="infoLayout">Layout A [1, 4+C, N]</b></div>
+<div class="info-item"><span class="info-lbl">Classes Count</span><b id="infoClassesCount">80 classes</b></div>
+</div>
+<div class="info-classes-wrap">
+<span class="info-lbl">Class Names Preview</span>
+<div id="infoClassesList" class="class-tags-preview"></div>
+</div>
+</div>
+</div>
 </div></section>
 </main><footer>EDGEVISION AI • EDGE AI-BASED REAL-TIME OBJECT DETECTION FOR SMART MEDIA APPLICATIONS</footer>
 <script type="module" src="app.js"></script>
