@@ -2,9 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="EdgeVision AI — Edge AI based real-time object detection for smart media applications">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="EdgeVision AI — Progressive Web App for real-time Edge AI object detection in smart media applications">
+  <meta name="theme-color" content="#0a0f1d">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="EdgeVision AI">
   <title>EdgeVision AI | Smart Media Object Detection</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="shortcut icon" href="icons/favicon.ico">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -14,7 +24,7 @@
       <span class="brand-mark">EV</span>
       <span>EdgeVision <b>AI</b></span>
     </div>
-    <nav>
+    <nav id="mainNav">
       <a href="#dashboard">Dashboard</a>
       <a href="#live">Workspace</a>
       <a href="#analytics">Analytics</a>
@@ -23,9 +33,14 @@
       <a href="#settings">Settings</a>
       <a href="#about">About</a>
     </nav>
-    <div class="status">
-      <i></i>
-      <span id="navStatus">AI Ready</span>
+    <div class="nav-actions">
+      <span id="networkStatus" class="net-pill online" title="Network Connection Status">🟢 Online</span>
+      <button id="pwaInstallBtn" class="btn small pwa-install-btn" style="display: none;" title="Install EdgeVision AI on your device">📲 Install App</button>
+      <div class="status">
+        <i></i>
+        <span id="navStatus">AI Ready</span>
+      </div>
+      <button id="menuToggleBtn" class="menu-toggle-btn" aria-label="Toggle Navigation" title="Toggle Menu">☰</button>
     </div>
   </header>
 
@@ -40,15 +55,16 @@
           Detect objects from your camera, local images, or video files directly in the browser using YOLO11 and ONNX Runtime — without sending video streams to a cloud inference server.
         </p>
         <div class="edge-notice">
-          ⚡ <b>Local Edge Architecture:</b> AI inference runs 100% locally in your browser. No cloud upload, no external API latency.
+          ⚡ <b>Local Edge Architecture:</b> AI inference runs 100% locally in your browser. Installable PWA with full offline capabilities and zero cloud bandwidth.
         </div>
         <div class="hero-actions">
           <a class="btn primary" href="#live">Start Detection</a>
           <a class="btn ghost" href="#architecture">View Architecture</a>
+          <button id="heroInstallBtn" class="btn ghost pwa-hero-install" style="display: none;">📲 Install PWA</button>
         </div>
         <div class="mini-points">
           <span>✓ Zero cloud latency</span>
-          <span>✓ Privacy-preserving</span>
+          <span>✓ 100% Offline PWA</span>
           <span>✓ WebGPU & WASM</span>
         </div>
       </div>
@@ -169,6 +185,7 @@
             <div class="controls">
               <button id="startBtn" class="btn primary">Start Camera</button>
               <button id="stopBtn" class="btn" disabled>Stop</button>
+              <button id="flipCamBtn" class="btn" title="Switch Front/Back Camera">🔄 Flip Camera</button>
               <button id="snapshotBtn" class="btn" disabled>Snapshot</button>
             </div>
             <div class="settings">
@@ -429,6 +446,18 @@
               <option value="user">Front / User</option>
             </select>
           </label>
+          <label class="setting-row">
+            <span>PWA & Offline Cache</span>
+            <div class="setting-control" style="font-size: 13px;">
+              <span id="pwaCacheStatus" style="color: var(--accent);">Checking cache…</span>
+            </div>
+          </label>
+          <label class="setting-row">
+            <span>Storage quota</span>
+            <div class="setting-control" style="font-size: 13px;">
+              <span id="storageQuotaStatus" style="color: var(--muted);">Estimating…</span>
+            </div>
+          </label>
           <div style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
             <button id="saveSettings" class="btn primary">Save Settings</button>
             <button id="resetSettingsBtn" class="btn">Reset to Default</button>
@@ -522,6 +551,8 @@ book"></textarea>
             <span class="tech-tag">WebGPU API</span>
             <span class="tech-tag">WebAssembly (WASM SIMD)</span>
             <span class="tech-tag">WebRTC MediaStream</span>
+            <span class="tech-tag">Progressive Web App (PWA)</span>
+            <span class="tech-tag">Service Worker & Cache API</span>
           </div>
         </div>
         <div class="about-card">
@@ -550,8 +581,50 @@ book"></textarea>
   </main>
 
   <footer>
-    EDGEVISION AI • 2ND-YEAR B.TECH COMPUTER SCIENCE & ENGINEERING PROJECT • LOCAL EDGE AI OBJECT DETECTION
+    EDGEVISION AI • 2ND-YEAR B.TECH COMPUTER SCIENCE & ENGINEERING PROJECT • PROGRESSIVE WEB APP & EDGE AI
   </footer>
+
+  <!-- PWA Update Notification Banner -->
+  <div id="pwaUpdateBanner" class="pwa-update-banner" style="display: none;">
+    <div class="pwa-update-content">
+      <span>⚡ An updated version of EdgeVision AI is ready!</span>
+      <div style="display: flex; gap: 8px;">
+        <button id="pwaReloadBtn" class="btn small primary">Update Now</button>
+        <button id="pwaDismissBannerBtn" class="btn small ghost">Later</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- iOS PWA Install Modal -->
+  <div id="iosInstallModal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Install EdgeVision AI</h3>
+        <button id="closeIosModalBtn" class="modal-close-btn" aria-label="Close">✕</button>
+      </div>
+      <p style="color: var(--muted); font-size: 14px; margin: 10px 0 16px;">
+        Install this app on your device for fast offline access and fullscreen camera view.
+      </p>
+      <div class="ios-install-steps">
+        <div class="ios-step-row">
+          <span class="ios-step-num">1</span>
+          <span>Tap the <b>Share</b> button (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle;"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>) in Safari.</span>
+        </div>
+        <div class="ios-step-row">
+          <span class="ios-step-num">2</span>
+          <span>Scroll down and select <b>Add to Home Screen</b>.</span>
+        </div>
+        <div class="ios-step-row">
+          <span class="ios-step-num">3</span>
+          <span>Tap <b>Add</b> in the top right to launch offline anytime!</span>
+        </div>
+      </div>
+      <button id="ackIosModalBtn" class="btn primary" style="width: 100%; margin-top: 16px;">Got It!</button>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
 
   <script type="module" src="app.js"></script>
 </body>

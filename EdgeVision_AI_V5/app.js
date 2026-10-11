@@ -1,7 +1,16 @@
-import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.all.min.mjs";
+import * as ort from "./vendor/ort.all.min.mjs";
 
-const DEFAULT_MODEL_URL =
+// Set local WASM binaries path for offline capability
+if (ort?.env?.wasm) {
+  ort.env.wasm.wasmPaths = "./vendor/";
+}
+
+// Local bundled model with remote CDN fallback
+const LOCAL_MODEL_URL = "./models/yolo11n.onnx";
+const REMOTE_MODEL_URL =
   "https://huggingface.co/webnn/yolo11n/resolve/main/onnx/yolo11n.onnx?download=true";
+
+const DEFAULT_MODEL_URL = LOCAL_MODEL_URL;
 
 let activeModelUrl = DEFAULT_MODEL_URL;
 let activeClassNames = null;
@@ -23,12 +32,28 @@ const COCO = [
 ];
 
 // ---------------- DOM References ----------------
-// Navigation & Status
+// Navigation & PWA Controls
 const navStatusEl = document.querySelector("#navStatus");
 const statusEl = document.querySelector("#engineStatus");
+const netStatusEl = document.querySelector("#networkStatus");
+const pwaInstallBtn = document.querySelector("#pwaInstallBtn");
+const heroInstallBtn = document.querySelector("#heroInstallBtn");
+const menuToggleBtn = document.querySelector("#menuToggleBtn");
+const mainNav = document.querySelector("#mainNav");
 const workspaceAlert = document.querySelector("#workspaceAlert");
 const alertMessage = document.querySelector("#alertMessage");
 const dismissAlertBtn = document.querySelector("#dismissAlertBtn");
+
+// PWA Modals & Banners
+const pwaUpdateBanner = document.querySelector("#pwaUpdateBanner");
+const pwaReloadBtn = document.querySelector("#pwaReloadBtn");
+const pwaDismissBannerBtn = document.querySelector("#pwaDismissBannerBtn");
+const iosInstallModal = document.querySelector("#iosInstallModal");
+const closeIosModalBtn = document.querySelector("#closeIosModalBtn");
+const ackIosModalBtn = document.querySelector("#ackIosModalBtn");
+const toastContainer = document.querySelector("#toastContainer");
+const pwaCacheStatus = document.querySelector("#pwaCacheStatus");
+const storageQuotaStatus = document.querySelector("#storageQuotaStatus");
 
 // Dashboard Live Metrics
 const dashTotal = document.querySelector("#dashTotal");
@@ -54,6 +79,7 @@ const cameraWrap = document.querySelector("#cameraWrap");
 const placeholder = document.querySelector("#placeholder");
 const startBtn = document.querySelector("#startBtn");
 const stopBtn = document.querySelector("#stopBtn");
+const flipCamBtn = document.querySelector("#flipCamBtn");
 const snapshotBtn = document.querySelector("#snapshotBtn");
 const confSlider = document.querySelector("#confidence");
 const confValue = document.querySelector("#confidenceValue");
@@ -223,26 +249,40 @@ settingsConfidence?.addEventListener("input", (e) => syncConfidence(e.target.val
 
 // ---------------- Model Loading & Provider Fallback ----------------
 async function createSessionWithFallback(modelSource, preferredEngine) {
-  const wantWebGpu = preferredEngine !== "wasm" && typeof navigator !== "undefined" && Boolean(navigator.gpu);
+  const hasWebGpu = typeof navigator !== "undefined" && Boolean(navigator.gpu);
+  const wantWebGpu = preferredEngine !== "wasm" && hasWebGpu;
+
+  async function attemptCreate(source, ep) {
+    try {
+      return await ort.InferenceSession.create(source, {
+        executionProviders: [ep],
+        graphOptimizationLevel: "all"
+      });
+    } catch (err) {
+      if (typeof source === "string" && source === LOCAL_MODEL_URL) {
+        console.warn(`Local model (${LOCAL_MODEL_URL}) failed, attempting remote fallback:`, err);
+        return await ort.InferenceSession.create(REMOTE_MODEL_URL, {
+          executionProviders: [ep],
+          graphOptimizationLevel: "all"
+        });
+      }
+      throw err;
+    }
+  }
 
   if (wantWebGpu) {
     try {
-      const sess = await ort.InferenceSession.create(modelSource, {
-        executionProviders: ["webgpu"],
-        graphOptimizationLevel: "all"
-      });
+      const sess = await attemptCreate(modelSource, "webgpu");
       return { session: sess, provider: "webgpu" };
     } catch (gpuErr) {
       console.warn("WebGPU initialization failed, falling back to WASM CPU:", gpuErr);
       setStatus("WebGPU unavailable, using CPU", true);
+      showToast("WebGPU unavailable; falling back to CPU / WASM SIMD", false);
     }
   }
 
   // CPU / WASM fallback
-  const sess = await ort.InferenceSession.create(modelSource, {
-    executionProviders: ["wasm"],
-    graphOptimizationLevel: "all"
-  });
+  const sess = await attemptCreate(modelSource, "wasm");
   return { session: sess, provider: "wasm" };
 }
 
@@ -327,6 +367,10 @@ async function loadModel() {
   }
   setStatus(`Loading ${activeModelName}…`);
   if (engineEl) engineEl.textContent = "Loading";
+  if (pwaCacheStatus) {
+    pwaCacheStatus.textContent = "Loading model into memory…";
+    pwaCacheStatus.style.color = "var(--muted)";
+  }
 
   const requestedEngine = engineSelect?.value || (gpuToggle?.checked ? "auto" : "wasm");
 
@@ -337,6 +381,10 @@ async function loadModel() {
     activeEngineName = isGpu ? "WebGPU" : "WASM CPU";
     updateTelemetry(undefined, undefined, undefined, activeEngineName);
     setStatus(isGpu ? "WebGPU Edge AI Ready" : "CPU Edge AI Ready");
+    if (pwaCacheStatus) {
+      pwaCacheStatus.textContent = "✓ YOLO11n Cached (100% Offline Ready)";
+      pwaCacheStatus.style.color = "var(--accent)";
+    }
 
     try {
       const dummyTensor = new ort.Tensor("float32", inputTensorBuffer, [1, 3, PREPROCESS_SIZE, PREPROCESS_SIZE]);
@@ -355,7 +403,11 @@ async function loadModel() {
     console.error("Failed to load model:", err);
     setStatus("Model load failed", false);
     if (engineEl) engineEl.textContent = "Error";
-    showAlert("Model failed to load. Check your internet connection for the initial pretrained model download.", true);
+    if (pwaCacheStatus) {
+      pwaCacheStatus.textContent = "⚠️ Model load failed";
+      pwaCacheStatus.style.color = "var(--danger)";
+    }
+    showAlert("Model failed to load. Check that model and vendor assets are available or cached.", true);
     throw err;
   }
 }
@@ -648,8 +700,28 @@ function stopCamera() {
   setStatus("AI Ready");
 }
 
+async function flipCamera() {
+  if (!cameraSelect) return;
+  if (cameraSelect.options.length > 1) {
+    const nextIndex = (cameraSelect.selectedIndex + 1) % cameraSelect.options.length;
+    cameraSelect.selectedIndex = nextIndex;
+  } else {
+    cameraSelect.value = cameraSelect.value === "user" ? "environment" : "user";
+  }
+  const label = cameraSelect.options[cameraSelect.selectedIndex]?.text || cameraSelect.value;
+  showToast(`Switched camera: ${label}`, false);
+
+  if (cameraRunning) {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null;
+    video.srcObject = null;
+    await startCamera();
+  }
+}
+
 startBtn?.addEventListener("click", startCamera);
 stopBtn?.addEventListener("click", stopCamera);
+flipCamBtn?.addEventListener("click", flipCamera);
 
 // Dynamic Camera Enumeration
 async function populateCameraDevices() {
@@ -1355,12 +1427,184 @@ gpuToggle?.addEventListener("change", async () => {
   try { await loadModel(); } catch {}
 });
 
-// ---------------- Initialize Application ----------------
-if (!window.isSecureContext) {
-  setStatus("Use HTTPS / localhost", false);
-  if (engineEl) engineEl.textContent = "Browser";
+// ---------------- PWA, Toasts, Offline & Mobile Navigation ----------------
+let deferredInstallPrompt = null;
+
+function showToast(message, isDanger = false, duration = 3500) {
+  if (!toastContainer) return;
+  const toast = document.createElement("div");
+  toast.className = `toast ${isDanger ? 'toast-danger' : 'toast-success'}`;
+  toast.innerHTML = `<span>${isDanger ? '⚠️' : '✓'}</span><span>${escapeHtml(message)}</span>`;
+  toastContainer.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    toast.style.transform = "translateY(10px)";
+    toast.style.transition = "all 0.3s ease";
+    setTimeout(() => toast.remove(), 320);
+  }, duration);
 }
 
+function setupMobileNavigation() {
+  if (!menuToggleBtn || !mainNav) return;
+  menuToggleBtn.addEventListener("click", () => {
+    mainNav.classList.toggle("mobile-open");
+    menuToggleBtn.textContent = mainNav.classList.contains("mobile-open") ? "✕" : "☰";
+  });
+
+  mainNav.querySelectorAll("a").forEach((link) => {
+    link.addEventListener("click", () => {
+      mainNav.classList.remove("mobile-open");
+      if (menuToggleBtn) menuToggleBtn.textContent = "☰";
+    });
+  });
+}
+
+function updateNetworkStatus() {
+  const isOnline = navigator.onLine;
+  if (netStatusEl) {
+    netStatusEl.className = `net-pill ${isOnline ? 'online' : 'offline'}`;
+    netStatusEl.textContent = isOnline ? "🟢 Online" : "🟠 Offline (PWA)";
+  }
+}
+
+function setupNetworkStatus() {
+  updateNetworkStatus();
+  window.addEventListener("online", () => {
+    updateNetworkStatus();
+    showToast("🟢 Connection restored. Online mode active.", false);
+  });
+  window.addEventListener("offline", () => {
+    updateNetworkStatus();
+    showToast("📶 Offline mode active. Running on-device Edge AI.", false);
+  });
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    if (pwaCacheStatus) {
+      pwaCacheStatus.textContent = "Service Worker not supported";
+      pwaCacheStatus.style.color = "var(--muted)";
+    }
+    return;
+  }
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("./sw.js", { scope: "./" })
+      .then((reg) => {
+        console.log("[PWA] Service Worker registered with scope:", reg.scope);
+        if (pwaCacheStatus && !pwaCacheStatus.textContent.includes("✓")) {
+          pwaCacheStatus.textContent = "✓ Service Worker Active";
+          pwaCacheStatus.style.color = "var(--accent)";
+        }
+
+        reg.onupdatefound = () => {
+          const installingWorker = reg.installing;
+          if (installingWorker) {
+            installingWorker.onstatechange = () => {
+              if (installingWorker.state === "installed" && navigator.serviceWorker.controller) {
+                if (pwaUpdateBanner) pwaUpdateBanner.style.display = "block";
+              }
+            };
+          }
+        };
+      })
+      .catch((err) => {
+        console.warn("[PWA] Service Worker registration error:", err);
+        if (pwaCacheStatus) {
+          pwaCacheStatus.textContent = "SW registration failed";
+          pwaCacheStatus.style.color = "var(--danger)";
+        }
+      });
+  });
+}
+
+async function promptPwaInstall() {
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    console.log("[PWA] Install prompt outcome:", outcome);
+    deferredInstallPrompt = null;
+    if (pwaInstallBtn) pwaInstallBtn.style.display = "none";
+    if (heroInstallBtn) heroInstallBtn.style.display = "none";
+  } else {
+    // Show iOS / manual install modal
+    if (iosInstallModal) iosInstallModal.style.display = "grid";
+  }
+}
+
+function setupPwaInstall() {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    if (pwaInstallBtn) pwaInstallBtn.style.display = "inline-flex";
+    if (heroInstallBtn) heroInstallBtn.style.display = "inline-flex";
+  });
+
+  window.addEventListener("appinstalled", () => {
+    console.log("[PWA] EdgeVision AI was successfully installed.");
+    if (pwaInstallBtn) pwaInstallBtn.style.display = "none";
+    if (heroInstallBtn) heroInstallBtn.style.display = "none";
+    showToast("🎉 EdgeVision AI installed to your home screen / desktop!", false);
+  });
+
+  pwaInstallBtn?.addEventListener("click", promptPwaInstall);
+  heroInstallBtn?.addEventListener("click", promptPwaInstall);
+
+  pwaReloadBtn?.addEventListener("click", () => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        reg?.waiting?.postMessage({ type: "SKIP_WAITING" });
+        window.location.reload();
+      });
+    } else {
+      window.location.reload();
+    }
+  });
+
+  pwaDismissBannerBtn?.addEventListener("click", () => {
+    if (pwaUpdateBanner) pwaUpdateBanner.style.display = "none";
+  });
+
+  closeIosModalBtn?.addEventListener("click", () => {
+    if (iosInstallModal) iosInstallModal.style.display = "none";
+  });
+
+  ackIosModalBtn?.addEventListener("click", () => {
+    if (iosInstallModal) iosInstallModal.style.display = "none";
+  });
+}
+
+async function updateStorageQuota() {
+  if ("storage" in navigator && "estimate" in navigator.storage) {
+    try {
+      const { quota, usage } = await navigator.storage.estimate();
+      const usedMb = (usage / (1024 * 1024)).toFixed(1);
+      const totalMb = (quota / (1024 * 1024)).toFixed(0);
+      if (storageQuotaStatus) {
+        storageQuotaStatus.textContent = `${usedMb} MB used (of ~${totalMb} MB storage)`;
+        storageQuotaStatus.style.color = "var(--text)";
+      }
+    } catch (e) {
+      if (storageQuotaStatus) storageQuotaStatus.textContent = "Storage API available";
+    }
+  } else if (storageQuotaStatus) {
+    storageQuotaStatus.textContent = "Storage quota API unsupported";
+  }
+}
+
+// ---------------- Initialize Application ----------------
+if (!window.isSecureContext) {
+  setStatus("Use HTTPS / localhost for Camera & PWA", false);
+  if (engineEl) engineEl.textContent = "Browser";
+  showAlert("Secure Context (HTTPS or localhost) required for Camera access and PWA installation.", false);
+}
+
+setupMobileNavigation();
+setupNetworkStatus();
+registerServiceWorker();
+setupPwaInstall();
+updateStorageQuota();
 populateCameraDevices();
 loadSavedSettings();
 renderAnalytics();
@@ -1373,3 +1617,7 @@ window.evState = evState;
 window.switchWorkspaceTab = switchWorkspaceTab;
 window.renderAnalytics = renderAnalytics;
 window.syncConfidence = syncConfidence;
+window.promptPwaInstall = promptPwaInstall;
+window.updateStorageQuota = updateStorageQuota;
+window.showToast = showToast;
+
