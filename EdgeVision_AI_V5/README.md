@@ -1,7 +1,6 @@
 # EdgeVision AI
 
 > **EDGE AI-BASED REAL-TIME OBJECT DETECTION FOR SMART MEDIA APPLICATIONS**  
-> *2nd-Year B.Tech Computer Science & Engineering Project • Progressive Web App (PWA)*
 
 [![PWA](https://img.shields.io/badge/PWA-Installable%20%26%20Offline-10b981.svg)](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps)
 [![Edge AI](https://img.shields.io/badge/AI-On--Device%20YOLO11n-06b6d4.svg)](https://docs.ultralytics.com/models/yolo11/)
